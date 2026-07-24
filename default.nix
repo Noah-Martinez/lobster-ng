@@ -17,6 +17,7 @@
   mpv,
   openssl,
   shellcheck,
+  shfmt,
 }:
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "lobster-ng";
@@ -33,6 +34,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     jq
     makeWrapper
     shellcheck
+    shfmt
   ];
 
   wrapperPaths = lib.makeBinPath [
@@ -63,7 +65,9 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
     find . -type f -name '*.sh' -print0 \
       | xargs -0 -n1 sh -n
-    shellcheck lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh
+    shfmt -i 4 -ci -d lobster.sh providers tests
+    shellcheck -s sh -o all -e 2250 \
+      lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh
     ./tests/provider-interface.sh
 
     runHook postCheck
