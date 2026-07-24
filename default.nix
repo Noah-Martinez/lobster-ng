@@ -6,18 +6,17 @@
   ffmpeg,
   fzf,
   gnugrep,
+  gnupatch,
   gnused,
   html-xml-utils,
   lib,
   makeWrapper,
   mpv,
   openssl,
-  python3,
-  shellcheck,
 }:
 stdenvNoCC.mkDerivation (finalAttrs: {
-  pname = "lobster-ng";
-  version = "4.6.7-ng.1";
+  pname = "lobster";
+  version = "4.6.7";
 
   src = builtins.path {
     name = "${finalAttrs.pname}-${finalAttrs.version}";
@@ -25,15 +24,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     path = ./.;
   };
 
-  nativeBuildInputs = [
-    makeWrapper
-    python3
-    shellcheck
-  ];
-
-  postPatch = ''
-    python3 scripts/harden.py lobster.sh
-  '';
+  nativeBuildInputs = [makeWrapper];
 
   wrapperPaths = lib.makeBinPath [
     coreutils
@@ -41,6 +32,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     ffmpeg
     fzf
     gnugrep
+    gnupatch
     gnused
     html-xml-utils
     mpv
@@ -48,21 +40,13 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   ];
 
   dontBuild = true;
-  doCheck = true;
-
-  checkPhase = ''
-    runHook preCheck
-    sh -n lobster.sh
-    shellcheck --severity=error lobster.sh
-    runHook postCheck
-  '';
 
   preInstall = ''
     patchShebangs --host lobster.sh
   '';
 
   installPhase = ''
-    runHook preInstall
+    runHook preInstall;
     mkdir -p $out/bin
     cp lobster.sh $out/bin/lobster
     runHook postInstall
@@ -75,16 +59,16 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
   passthru.tests.version = testers.testVersion {
     package = finalAttrs.finalPackage;
-    command = "lobster --version";
-    version = "4.6.7";
   };
 
   meta = {
-    description = "Maintained fork of the Lobster movie and TV streaming CLI";
+    description = "CLI to watch Movies/TV Shows from the terminal";
     homepage = "https://github.com/Noah-Martinez/lobster-ng";
     license = lib.licenses.gpl2;
+    maintainers = with lib.maintainers; [NotAShelf];
     mainProgram = "lobster";
     platforms = lib.platforms.unix;
     sourceProvenance = [lib.sourceTypes.fromSource];
   };
 })
+

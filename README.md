@@ -1,7 +1,3 @@
-# Lobster-ng
-
-Lobster-ng is the continued and maintained fork of Lobster, a shell-based CLI for watching movies and TV shows. It keeps the existing command-line experience and installation options while continuing provider fixes, compatibility work, packaging, and security maintenance.
-
 ### Showcase
 
 https://github.com/justchokingaround/lobster/assets/44473782/d597335c-42a9-4e45-8948-122744aa5ca9
