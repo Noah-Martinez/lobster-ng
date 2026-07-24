@@ -46,6 +46,17 @@ jobs:
               >>ci-diagnostics.log 2>&1
           shellcheck_status=$?
 
+          user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36'
+          curl -L -sS --compressed -A "$user_agent" \
+            -G --data-urlencode 'query=Ugly Betty' \
+            https://www.themoviedb.org/search \
+            -o tmdb-live.html
+          curl -L -sS --compressed -A "$user_agent" \
+            -H 'Accept-Language: en-US,en;q=0.8' \
+            -G --data-urlencode 'q=Ugly Betty' \
+            https://www.imdb.com/find/ \
+            -o imdb-live.html
+
           echo '=== live catalog smoke test ===' >>ci-diagnostics.log
           nix develop --command sh -c '
             echo "-- TMDB --"
@@ -61,6 +72,9 @@ jobs:
           echo '=== nix flake check ===' >>ci-diagnostics.log
           nix flake check --print-build-logs >>ci-diagnostics.log 2>&1
           nix_status=$?
+
+          git fetch origin main --depth=1
+          git show origin/main:lobster.sh >original-lobster.sh
 
           echo "statuses: shfmt=$shfmt_status shellcheck=$shellcheck_status catalog=$catalog_status nix=$nix_status" >>ci-diagnostics.log
           status=0
@@ -78,8 +92,11 @@ jobs:
           path: |
             ci-diagnostics.log
             lobster.sh
+            original-lobster.sh
             providers
             tests
+            tmdb-live.html
+            imdb-live.html
 
       - name: Check result
         if: always()
