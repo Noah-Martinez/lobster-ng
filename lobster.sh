@@ -39,7 +39,6 @@ send_notification() {
 }
 
 ### HTML Decoding ###
-command -v "hxunent" >/dev/null 2>&1 && hxunent="hxunent" || hxunent="tee /dev/null" # use hxunent if installed, else do nothing
 
 ### Discord Rich Presence Variables ###
 # Note: experimental feature

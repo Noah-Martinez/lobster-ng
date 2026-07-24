@@ -1,56 +1,24 @@
-name: Apply final provider fix
+name: Nix
 
 on:
   pull_request:
-    paths:
-      - .github/workflows/nix.yml
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  check:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out branch
+      - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          ref: fix/replace-flixhq-provider
 
-      - name: Remove obsolete decoder and restore Nix check
-        shell: bash
-        run: |
-          sed -i '/command -v "hxunent".*hxunent=/d' lobster.sh
-          cat > .github/workflows/nix.yml <<'EOF_NIX'
-          name: Nix
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
 
-          on:
-            pull_request:
-            push:
-              branches:
-                - main
-            workflow_dispatch:
-
-          permissions:
-            contents: read
-
-          jobs:
-            check:
-              runs-on: ubuntu-latest
-              steps:
-                - name: Check out repository
-                  uses: actions/checkout@v4
-
-                - name: Install Nix
-                  uses: cachix/install-nix-action@v31
-
-                - name: Check flake
-                  run: nix flake check --print-build-logs
-          EOF_NIX
-          sed -i 's/^          //' .github/workflows/nix.yml
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add lobster.sh .github/workflows/nix.yml
-          git commit -m "fix: remove obsolete HTML decoder variable"
-          git push origin HEAD:fix/replace-flixhq-provider
+      - name: Check flake
+        run: nix flake check --print-build-logs
