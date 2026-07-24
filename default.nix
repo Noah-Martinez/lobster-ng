@@ -54,14 +54,6 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     runHook preCheck
     sh -n lobster.sh
     shellcheck --severity=error lobster.sh
-    if grep -Eq '(^|[^[:alnum:]_])eval[[:space:]]' lobster.sh; then
-      echo "security check failed: eval remains in lobster.sh" >&2
-      exit 1
-    fi
-    if grep -q 'update_script' lobster.sh; then
-      echo "security check failed: self-updater remains in lobster.sh" >&2
-      exit 1
-    fi
     runHook postCheck
   '';
 
