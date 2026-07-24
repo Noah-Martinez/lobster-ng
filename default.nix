@@ -13,9 +13,10 @@
   makeWrapper,
   mpv,
   openssl,
+  shellcheck,
 }:
 stdenvNoCC.mkDerivation (finalAttrs: {
-  pname = "lobster";
+  pname = "lobster-ng";
   version = "4.6.7";
 
   src = builtins.path {
@@ -24,7 +25,10 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     path = ./.;
   };
 
-  nativeBuildInputs = [makeWrapper];
+  nativeBuildInputs = [
+    makeWrapper
+    shellcheck
+  ];
 
   wrapperPaths = lib.makeBinPath [
     coreutils
@@ -40,13 +44,21 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   ];
 
   dontBuild = true;
+  doCheck = true;
+
+  checkPhase = ''
+    runHook preCheck
+    sh -n lobster.sh
+    shellcheck --severity=error lobster.sh
+    runHook postCheck
+  '';
 
   preInstall = ''
     patchShebangs --host lobster.sh
   '';
 
   installPhase = ''
-    runHook preInstall;
+    runHook preInstall
     mkdir -p $out/bin
     cp lobster.sh $out/bin/lobster
     runHook postInstall
@@ -59,13 +71,14 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
   passthru.tests.version = testers.testVersion {
     package = finalAttrs.finalPackage;
+    command = "lobster --version";
+    version = finalAttrs.version;
   };
 
   meta = {
     description = "Maintained fork of the Lobster movie and TV streaming CLI";
     homepage = "https://github.com/Noah-Martinez/lobster-ng";
     license = lib.licenses.gpl2;
-    maintainers = with lib.maintainers; [NotAShelf];
     mainProgram = "lobster";
     platforms = lib.platforms.unix;
     sourceProvenance = [lib.sourceTypes.fromSource];
