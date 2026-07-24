@@ -7,7 +7,7 @@ def replace_exact(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
     if count != 1:
         raise SystemExit(
-            f"hardening failed for {label}: expected exactly one match, found {count}"
+            f"maintenance transform failed for {label}: expected exactly one match, found {count}"
         )
     return text.replace(old, new, 1)
 
@@ -25,15 +25,6 @@ chmod 700 "$tmp_dir"
 lobster_socket="$tmp_dir/mpv.sock" # Used by mpv (check the play_video function)
 lobster_logfile="$tmp_dir/lobster.log"''',
     "private temporary directory",
-)
-
-text = replace_exact(
-    text,
-    '''    -u, -U, --update
-      Update the script
-''',
-    "",
-    "update option help",
 )
 
 text = replace_exact(
@@ -184,14 +175,56 @@ start = text.find('    update_script() {\n')
 end_marker = '    # download_video [url] [title] [download_dir] [json_data] [thumbnail_file (only when image_preview is enabled)]\n'
 end = text.find(end_marker, start)
 if start == -1 or end == -1:
-    raise SystemExit("hardening failed for self-updater: block not found")
-text = text[:start] + text[end:]
+    raise SystemExit("maintenance transform failed for updater: block not found")
 
-text = replace_exact(
-    text,
-    '            -u | -U | --update) update_script ;;\n',
-    "",
-    "update option parser",
-)
+safe_updater = r'''    update_script() {
+        which_lobster=$(command -v lobster)
+        if [ -z "$which_lobster" ]; then
+            send_notification "Can't find lobster in PATH"
+            exit 1
+        fi
 
+        case "$which_lobster" in
+            /nix/store/*)
+                send_notification "Lobster is managed by Nix; update your flake input instead"
+                exit 1
+                ;;
+        esac
+
+        update_file="$tmp_dir/lobster-update.sh"
+        if ! curl --fail --silent --show-error --location \
+            --proto '=https' --tlsv1.2 \
+            https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh \
+            --output "$update_file"; then
+            send_notification "Could not download the latest Lobster-ng version"
+            exit 1
+        fi
+
+        if ! sh -n "$update_file"; then
+            send_notification "Downloaded update failed the shell syntax check"
+            exit 1
+        fi
+
+        if grep -Eq '(^|[^[:alnum:]_])eval[[:space:]]' "$update_file"; then
+            send_notification "Downloaded update failed the security check"
+            exit 1
+        fi
+
+        if cmp -s "$which_lobster" "$update_file"; then
+            send_notification "Lobster-ng is up to date :)"
+            exit 0
+        fi
+
+        chmod +x "$update_file"
+        if cat "$update_file" >"$which_lobster"; then
+            send_notification "Lobster-ng has been updated!"
+        else
+            send_notification "Could not replace $which_lobster; check its permissions"
+            exit 1
+        fi
+        exit 0
+    }
+'''
+
+text = text[:start] + safe_updater + text[end:]
 path.write_text(text)
