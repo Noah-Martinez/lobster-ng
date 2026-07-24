@@ -88,7 +88,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   };
 
   meta = {
-    description = "Security-hardened movie and TV streaming CLI";
+    description = "Maintained fork of the Lobster movie and TV streaming CLI";
     homepage = "https://github.com/Noah-Martinez/lobster-ng";
     license = lib.licenses.gpl2;
     mainProgram = "lobster";
