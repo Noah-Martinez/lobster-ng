@@ -5,9 +5,10 @@ LOBSTER_VERSION="4.6.7"
 ### General Variables ###
 config_file="$HOME/.config/lobster/lobster_config.sh"
 lobster_editor=${VISUAL:-${EDITOR}}
-tmp_dir="${TMPDIR:-/tmp}/lobster" && mkdir -p "$tmp_dir"
-lobster_socket="${TMPDIR:-/tmp}/lobster.sock" # Used by mpv (check the play_video function)
-lobster_logfile="${TMPDIR:-/tmp}/lobster.log"
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/lobster.XXXXXXXX") || exit 1
+chmod 700 "$tmp_dir"
+lobster_socket="$tmp_dir/mpv.sock" # Used by mpv (check the play_video function)
+lobster_logfile="$tmp_dir/lobster.log"
 applications="$HOME/.local/share/applications/lobster" # Used for external menus (for now just rofi)
 images_cache_dir="$tmp_dir/lobster-images"             # Used for storing downloaded images of movie covers
 STATE=""                                               # Used for main state machine
@@ -153,6 +154,28 @@ dep_ch() {
             send_notification "Program \"$dep\" not found. Please install it."
             exit 1
         fi
+    done
+}
+
+validate_https_url() {
+    url=$1
+
+    case "$url" in
+        https://*) ;;
+        *) return 1 ;;
+    esac
+
+    case "$url" in
+        *"$nl"*) return 1 ;;
+    esac
+
+    return 0
+}
+
+validate_https_lines() {
+    while IFS= read -r url; do
+        [ -z "$url" ] && continue
+        validate_https_url "$url" || return 1
     done
 }
 
@@ -589,6 +612,10 @@ EOF
             send_notification "Error" "Could not get embed link"
             exit 1
         fi
+        if ! validate_https_url "$embed_link"; then
+            send_notification "Error" "Rejected an unsafe embed URL"
+            exit 1
+        fi
     }
 
     extract_from_embed() {
@@ -613,6 +640,11 @@ EOF
 
         [ -n "$quality" ] && video_link=$(printf "%s" "$video_link" | sed -e "s|/playlist.m3u8|/$quality/index.m3u8|")
 
+        if ! validate_https_url "$video_link"; then
+            send_notification "Error" "Rejected an unsafe video URL"
+            exit 1
+        fi
+
         [ "$json_output" = "true" ] && printf "%s\n" "$json_data" && exit 0
 
         if [ "$no_subs" = "true" ]; then
@@ -624,6 +656,10 @@ EOF
                 send_notification "No subtitles found for language '$subs_language'"
                 subs_arg=""
             else
+                if ! printf '%s\n' "$subs_links" | validate_https_lines; then
+                    send_notification "Error" "Rejected an unsafe subtitle URL"
+                    exit 1
+                fi
                 subs_arg="--sub-file"
                 num_subs=$(printf "%s" "$subs_links" | wc -l | tr -d ' ')
 
@@ -848,24 +884,20 @@ EOF
                 ;;
             mpv | mpv.exe)
                 [ -z "$continue_choice" ] && check_history
-                player_cmd="$player"
-                [ -n "$resume_from" ] && player_cmd="$player_cmd --start='$resume_from'"
-                [ -n "$subs_links" ] && player_cmd="$player_cmd $subs_arg='$subs_links'"
-                # Escape ' symbols in titles to prevent unterminated string error
-                escaped_title=$(printf "%s" "$displayed_title" | "$sed" "s/'/'\\\\''/g")
-                player_cmd="$player_cmd --force-media-title='$escaped_title' '$video_link'"
+                set -- "$player"
+                [ -n "$resume_from" ] && set -- "$@" "--start=$resume_from"
+                [ -n "$subs_links" ] && set -- "$@" "$subs_arg=$subs_links"
+                set -- "$@" "--force-media-title=$displayed_title" "$video_link"
                 case "$(uname -s)" in
-                    MINGW* | *Msys) player_cmd="$player_cmd --write-filename-in-watch-later-config --save-position-on-quit --quiet" ;;
-                    *) player_cmd="$player_cmd --watch-later-directory='$watchlater_dir' --write-filename-in-watch-later-config --save-position-on-quit --quiet" ;;
+                    MINGW* | *Msys) ;;
+                    *)
+                        set -- "$@" "--watch-later-directory=$watchlater_dir"
+                        set -- "$@" "--input-ipc-server=$lobster_socket"
+                        ;;
                 esac
+                set -- "$@" --write-filename-in-watch-later-config --save-position-on-quit --quiet
 
-                # Check if the system supports Unix domain sockets
-                if command -v nc >/dev/null 2>&1 && [ -S "$lobster_socket" ] 2>/dev/null; then
-                    player_cmd="$player_cmd --input-ipc-server='$lobster_socket'"
-                fi
-
-                # Use eval to properly handle spaces in the command
-                eval "$player_cmd" >&3 &
+                "$@" >&3 &
 
                 if [ -z "$quality" ]; then
                     link=$(printf "%s" "$video_link" | $sed "s/\/playlist.m3u8/\/1080\/index.m3u8/g")
@@ -899,19 +931,49 @@ EOF
 
     ### Misc ###
     update_script() {
-        which_lobster="$(command -v lobster)"
-        [ -z "$which_lobster" ] && send_notification "Can't find lobster in PATH"
-        [ -z "$which_lobster" ] && exit 1
-        update=$(curl -s "https://raw.githubusercontent.com/justchokingaround/lobster/main/lobster.sh" || exit 1)
-        update="$(printf '%s\n' "$update" | diff -u "$which_lobster" -)"
-        if [ -z "$update" ]; then
-            send_notification "Script is up to date :)"
+        which_lobster=$(command -v lobster)
+        if [ -z "$which_lobster" ]; then
+            send_notification "Can't find lobster in PATH"
+            exit 1
+        fi
+
+        case "$which_lobster" in
+            /nix/store/*)
+                send_notification "Lobster is managed by Nix; update your flake input instead"
+                exit 1
+                ;;
+        esac
+
+        update_file="$tmp_dir/lobster-update.sh"
+        if ! curl --fail --silent --show-error --location \
+            --proto '=https' --tlsv1.2 \
+            https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh \
+            --output "$update_file"; then
+            send_notification "Could not download the latest Lobster-ng version"
+            exit 1
+        fi
+
+        if ! sh -n "$update_file"; then
+            send_notification "Downloaded update failed the shell syntax check"
+            exit 1
+        fi
+
+        if grep -Eq '(^|[^[:alnum:]_])eval[[:space:]]' "$update_file"; then
+            send_notification "Downloaded update failed the security check"
+            exit 1
+        fi
+
+        if cmp -s "$which_lobster" "$update_file"; then
+            send_notification "Lobster-ng is up to date :)"
+            exit 0
+        fi
+
+        chmod +x "$update_file"
+        if cat "$update_file" >"$which_lobster"; then
+            send_notification "Lobster-ng has been updated!"
         else
-            if printf '%s\n' "$update" | patch "$which_lobster" -; then
-                send_notification "Script has been updated!"
-            else
-                send_notification "Can't update for some reason!"
-            fi
+            send_notification "Could not replace $which_lobster; check its permissions"
+            exit 1
         fi
         exit 0
     }
