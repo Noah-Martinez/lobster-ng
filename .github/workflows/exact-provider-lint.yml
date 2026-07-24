@@ -18,7 +18,7 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@v31
 
-      - name: Run inherited lint options
+      - name: Run inherited discovery and options
         id: lint
         shell: bash
         run: |
@@ -26,12 +26,15 @@ jobs:
           nix shell \
             github:NixOS/nixpkgs/nixos-unstable#shellcheck \
             github:NixOS/nixpkgs/nixos-unstable#shfmt \
-            --command sh -c '
+            --command bash -c '
+              mapfile -t files < <(shfmt -f .)
+              echo "=== discovered shell files ==="
+              printf "%s\n" "${files[@]}"
               echo "=== shfmt -i 4 -ci -d ==="
-              shfmt -i 4 -ci -d lobster.sh providers tests
+              shfmt -i 4 -ci -d "${files[@]}"
               shfmt_status=$?
               echo "=== shellcheck -s sh -o all -e 2250 ==="
-              shellcheck -s sh -o all -e 2250 lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh
+              shellcheck -s sh -o all -e 2250 "${files[@]}"
               shellcheck_status=$?
               echo "statuses: shfmt=$shfmt_status shellcheck=$shellcheck_status"
               test "$shfmt_status" -eq 0 -a "$shellcheck_status" -eq 0
