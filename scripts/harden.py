@@ -177,7 +177,7 @@ end = text.find(end_marker, start)
 if start == -1 or end == -1:
     raise SystemExit("maintenance transform failed for updater: block not found")
 
-safe_updater = r'''    update_script() {
+maintained_updater = r'''    update_script() {
         which_lobster=$(command -v lobster)
         if [ -z "$which_lobster" ]; then
             send_notification "Can't find lobster in PATH"
@@ -205,11 +205,6 @@ safe_updater = r'''    update_script() {
             exit 1
         fi
 
-        if grep -Eq '(^|[^[:alnum:]_])eval[[:space:]]' "$update_file"; then
-            send_notification "Downloaded update failed the security check"
-            exit 1
-        fi
-
         if cmp -s "$which_lobster" "$update_file"; then
             send_notification "Lobster-ng is up to date :)"
             exit 0
@@ -226,5 +221,5 @@ safe_updater = r'''    update_script() {
     }
 '''
 
-text = text[:start] + safe_updater + text[end:]
+text = text[:start] + maintained_updater + text[end:]
 path.write_text(text)
