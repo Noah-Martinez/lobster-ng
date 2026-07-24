@@ -19,11 +19,13 @@ fetch_page() {
     shift
 
     if [ -n "${LOBSTER_FIXTURE_FILE:-}" ]; then
-        cp "$LOBSTER_FIXTURE_FILE" "$tmp_file" || fail 3 "could not read fixture"
+        cp "$LOBSTER_FIXTURE_FILE" "$tmp_file" || fail 3 "could not read fixture file"
         return
     fi
 
-    status=$(curl -L -sS --compressed -A "$user_agent" -o "$tmp_file" -w '%{http_code}' "$url" "$@") ||
+    status=$(curl -L -sS --compressed -A "$user_agent" \
+        -H 'Accept-Language: en-US,en;q=0.8' \
+        -o "$tmp_file" -w '%{http_code}' "$url" "$@") ||
         fail 3 "request failed; check your internet connection"
 
     case "$status" in
@@ -41,57 +43,44 @@ decode_html() {
     fi
 }
 
-emit_cards() {
-    cards=$(tr '\n' ' ' <"$tmp_file" | sed 's/<div class="card v4 tight"/\n<div class="card v4 tight"/g')
+emit_media_cards() {
+    records=$(tr '\n' ' ' <"$tmp_file" |
+        sed 's/class="comp:media-card/\nclass="comp:media-card/g')
     results=""
 
-    while IFS= read -r card; do
-        [ -z "$card" ] && continue
-        media_path=$(printf '%s\n' "$card" |
-            sed -nE 's@.*href="/(movie|tv)/([0-9]+)[^"]*".*@\1\t\2@p' |
-            head -n 1)
-        [ -z "$media_path" ] && continue
-
-        media_type=$(printf '%s' "$media_path" | cut -f1)
-        media_id=$(printf '%s' "$media_path" | cut -f2)
-        title=$(printf '%s\n' "$card" |
-            sed -nE 's@.*href="/(movie|tv)/[0-9]+[^"]*"[^>]*title="([^"]+)".*@\2@p' |
-            head -n 1)
-        [ -z "$title" ] && title=$(printf '%s\n' "$card" | sed -nE 's@.*<h2[^>]*>([^<]+)</h2>.*@\1@p' | head -n 1)
-        [ -z "$title" ] && continue
-
-        poster=$(printf '%s\n' "$card" |
-            sed -nE 's@.*(data-src|src)="(https?://[^\"]+|/t/p/[^\"]+)".*@\2@p' |
-            head -n 1)
-        case "$poster" in
-            /t/p/*) poster="https://image.tmdb.org${poster}" ;;
+    while IFS= read -r record; do
+        case "$record" in
+            'class="comp:media-card'*) ;;
+            *) continue ;;
         esac
-        year=$(printf '%s\n' "$card" |
-            sed -nE 's@.*class="release_date"[^>]*>.*([0-9]{4}).*@\1@p' |
+
+        media_data=$(printf '%s\n' "$record" |
+            sed -nE 's@.*data-media-type="(movie|tv)"[^>]*href="/(movie|tv)/([0-9]+)[^"]*".*@\1\t\3@p' |
             head -n 1)
+        [ -n "$media_data" ] || continue
+
+        media_type=$(printf '%s' "$media_data" | cut -f1)
+        media_id=$(printf '%s' "$media_data" | cut -f2)
+        title=$(printf '%s\n' "$record" |
+            sed -nE 's@.*<h2[^>]*>[^<]*<span>([^<]+)</span>.*@\1@p' |
+            head -n 1)
+        [ -n "$title" ] || title=$(printf '%s\n' "$record" |
+            sed -nE 's@.*<h2[^>]*>([^<]+)</h2>.*@\1@p' |
+            head -n 1)
+        [ -n "$title" ] || continue
+
+        poster=$(printf '%s\n' "$record" | sed 's/<img/\n<img/g' |
+            sed -nE 's@.*src="(https://media\.themoviedb\.org/t/p/[^\"]+)".*@\1@p' |
+            head -n 1)
+        year=$(printf '%s\n' "$record" | sed 's/<span/\n<span/g' |
+            grep 'class="release_date' | grep -oE '[12][0-9]{3}' | head -n 1)
         title=$(printf '%s' "$title" | decode_html)
-        [ -n "$year" ] && display_title="$title [$year]" || display_title="$title"
+        [ -n "$year" ] || year="unknown"
 
-        results="${results}${poster}\ttmdb:${media_id}\t${media_type}\t${display_title}\ttmdb\n"
-    done <<EOF_CARDS
-$cards
-EOF_CARDS
-
-    if [ -z "$results" ]; then
-        anchors=$(tr '\n' ' ' <"$tmp_file" | sed 's/<a /\n<a /g' |
-            sed -nE \
-                -e 's@.*href="/(movie|tv)/([0-9]+)[^"]*"[^>]*title="([^"]+)".*@\1\t\2\t\3@p' \
-                -e 's@.*title="([^"]+)"[^>]*href="/(movie|tv)/([0-9]+)[^"]*".*@\2\t\3\t\1@p' |
-            awk -F '\t' '!seen[$1 FS $2]++')
-
-        while IFS="$(printf '\t')" read -r media_type media_id title; do
-            [ -z "$media_id" ] && continue
-            title=$(printf '%s' "$title" | decode_html)
-            results="${results}\ttmdb:${media_id}\t${media_type}\t${title}\ttmdb\n"
-        done <<EOF_ANCHORS
-$anchors
-EOF_ANCHORS
-    fi
+        results="${results}${poster}\ttmdb-${media_id}\t${media_type}\t${title} [${year}]\ttmdb:${media_id}\ttmdb\n"
+    done <<EOF_RECORDS
+$records
+EOF_RECORDS
 
     printf '%b' "$results"
 }
@@ -104,24 +93,39 @@ require_tmdb_ref() {
     esac
 }
 
+emit_numbered_links() {
+    kind=$1
+    prefix=$2
+    numbers=$(grep -oE "${prefix}[0-9]+" "$tmp_file" |
+        sed -nE "s@.*${kind}/([0-9]+).*@\\1@p" |
+        sort -n -u)
+    [ -n "$numbers" ] || return 1
+
+    printf '%s\n' "$numbers" | while IFS= read -r number; do
+        case "$kind" in
+            season) printf 'Season %s\t%s\n' "$number" "$number" ;;
+            episode) printf 'Episode %s\t%s\n' "$number" "$number" ;;
+        esac
+    done
+}
+
 case "${1:-}" in
     search)
         shift
         [ "$#" -gt 0 ] || fail 64 "missing search query"
-        query=$*
-        fetch_page "https://www.themoviedb.org/search" -G --data-urlencode "query=$query"
-        output=$(emit_cards)
+        fetch_page "https://www.themoviedb.org/search" -G --data-urlencode "query=$*"
+        output=$(emit_media_cards)
         if [ -z "$output" ]; then
-            if grep -qiE 'no results|nothing found|did not find' "$tmp_file"; then
-                fail 2 "no matching movies or TV shows found"
+            if grep -q 'class="comp:media-card' "$tmp_file"; then
+                fail 4 "the search page loaded, but its result cards could not be parsed"
             fi
-            fail 4 "the search page loaded, but its results could not be parsed"
+            fail 2 "no matching movies or TV shows found"
         fi
         printf '%s\n' "$output"
         ;;
     trending)
         fetch_page "https://www.themoviedb.org/trending"
-        output=$(emit_cards)
+        output=$(emit_media_cards)
         [ -n "$output" ] || fail 4 "the trending page loaded, but its results could not be parsed"
         printf '%s\n' "$output"
         ;;
@@ -133,20 +137,15 @@ case "${1:-}" in
             *) fail 64 "recent requires 'movie' or 'tv'" ;;
         esac
         fetch_page "$url"
-        output=$(emit_cards)
+        output=$(emit_media_cards)
         [ -n "$output" ] || fail 4 "the recent-$media_type page loaded, but its results could not be parsed"
         printf '%s\n' "$output"
         ;;
     seasons)
         media_id=$(require_tmdb_ref "${2:-}")
-        fetch_page "https://www.themoviedb.org/tv/$media_id"
-        seasons=$(grep -oE "/tv/${media_id}[^\"']*/season/[0-9]+" "$tmp_file" |
-            sed -nE 's@.*/season/([0-9]+).*@\1@p' |
-            sort -n -u)
-        [ -n "$seasons" ] || fail 4 "the title page loaded, but no seasons could be parsed"
-        printf '%s\n' "$seasons" | while IFS= read -r season; do
-            printf 'Season %s\t%s\n' "$season" "$season"
-        done
+        fetch_page "https://www.themoviedb.org/tv/$media_id/seasons"
+        emit_numbered_links season "/season/" ||
+            fail 4 "the seasons page loaded, but no seasons could be parsed"
         ;;
     episodes)
         media_id=$(require_tmdb_ref "${2:-}")
@@ -155,13 +154,8 @@ case "${1:-}" in
             *[!0-9]* | '') fail 64 "invalid season '$season'" ;;
         esac
         fetch_page "https://www.themoviedb.org/tv/$media_id/season/$season"
-        episodes=$(grep -oE "/tv/${media_id}[^\"']*/season/${season}/episode/[0-9]+" "$tmp_file" |
-            sed -nE 's@.*/episode/([0-9]+).*@\1@p' |
-            sort -n -u)
-        [ -n "$episodes" ] || fail 4 "the season page loaded, but no episodes could be parsed"
-        printf '%s\n' "$episodes" | while IFS= read -r episode; do
-            printf 'Episode %s\t%s\n' "$episode" "$episode"
-        done
+        emit_numbered_links episode "/episode/" ||
+            fail 4 "the season page loaded, but no episodes could be parsed"
         ;;
     *) fail 64 "unsupported action '${1:-}'" ;;
 esac

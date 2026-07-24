@@ -11,6 +11,7 @@
   gnupatch,
   gnused,
   html-xml-utils,
+  jq,
   lib,
   makeWrapper,
   mpv,
@@ -44,6 +45,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     gnupatch
     gnused
     html-xml-utils
+    jq
     mpv
     openssl
   ];
@@ -60,7 +62,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
     find . -type f -name '*.sh' -print0 \
       | xargs -0 -n1 sh -n
-    shellcheck --severity=error lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh
+    shellcheck lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh
     ./tests/provider-interface.sh
 
     runHook postCheck
