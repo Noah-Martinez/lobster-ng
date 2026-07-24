@@ -4,7 +4,9 @@
   coreutils,
   curl,
   ffmpeg,
+  findutils,
   fzf,
+  gawk,
   gnugrep,
   gnupatch,
   gnused,
@@ -17,7 +19,7 @@
 }:
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "lobster-ng";
-  version = "4.6.8";
+  version = "4.7.0";
 
   src = builtins.path {
     name = "${finalAttrs.pname}-${finalAttrs.version}";
@@ -26,6 +28,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   };
 
   nativeBuildInputs = [
+    findutils
     makeWrapper
     shellcheck
   ];
@@ -34,7 +37,9 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     coreutils
     curl
     ffmpeg
+    findutils
     fzf
+    gawk
     gnugrep
     gnupatch
     gnused
@@ -48,24 +53,33 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
   checkPhase = ''
     runHook preCheck
-    sh -n lobster.sh
-    shellcheck --severity=error lobster.sh
+
+    find . -type f -name '*.sh' -print0 \
+      | xargs -0 -n1 sh -n
+    shellcheck --severity=error lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh
+    ./tests/provider-interface.sh
+
     runHook postCheck
   '';
 
   preInstall = ''
-    patchShebangs --host lobster.sh
+    patchShebangs --host lobster.sh providers tests
   '';
 
   installPhase = ''
     runHook preInstall
-    mkdir -p $out/bin
+
+    mkdir -p $out/bin $out/lib/lobster/providers/catalog $out/lib/lobster/providers/stream
     cp lobster.sh $out/bin/lobster
+    cp providers/catalog/*.sh $out/lib/lobster/providers/catalog/
+    cp providers/stream/*.sh $out/lib/lobster/providers/stream/
+
     runHook postInstall
   '';
 
   postInstall = ''
     wrapProgram $out/bin/lobster \
+      --set LOBSTER_PROVIDER_DIR "$out/lib/lobster/providers" \
       --prefix PATH : $wrapperPaths
   '';
 
@@ -76,11 +90,11 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   };
 
   meta = {
-    description = "Maintained fork of the Lobster movie and TV streaming CLI";
+    description = "Maintained, provider-based Lobster movie and TV streaming CLI";
     homepage = "https://github.com/Noah-Martinez/lobster-ng";
     license = lib.licenses.gpl2;
     mainProgram = "lobster";
     platforms = lib.platforms.unix;
-    sourceProvenance = [lib.sourceTypes.fromSource];
+    sourceProvenance = [ lib.sourceTypes.fromSource ];
   };
 })
