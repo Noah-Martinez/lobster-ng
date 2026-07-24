@@ -20,54 +20,22 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@v31
 
-      - name: Collect checkbashisms diagnostics
-        id: diagnostics
+      - name: Capture checker configuration
         shell: bash
         run: |
-          set +e
-          : >ci-diagnostics.log
+          {
+            echo '=== workflow files using action-sh-checker ==='
+            grep -R -l 'action-sh-checker' .github/workflows | while read -r file; do
+              echo "--- $file ---"
+              cat "$file"
+            done
+            echo '=== nix flake check ==='
+            nix flake check --print-build-logs
+          } >checker-config.log 2>&1
 
-          sudo apt-get update -qq >>ci-diagnostics.log 2>&1
-          sudo apt-get install -y -qq devscripts >>ci-diagnostics.log 2>&1
-          echo '=== checkbashisms ===' >>ci-diagnostics.log
-          checkbashisms lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh >>ci-diagnostics.log 2>&1
-          bashisms_status=$?
-
-          echo '=== current shellcheck and shfmt ===' >>ci-diagnostics.log
-          nix shell \
-            github:NixOS/nixpkgs/nixos-unstable#shellcheck \
-            github:NixOS/nixpkgs/nixos-unstable#shfmt \
-            --command sh -c '
-              shellcheck --version
-              shfmt --version
-              shfmt -d lobster.sh providers tests
-              shfmt_status=$?
-              shellcheck lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh
-              shellcheck_status=$?
-              echo "statuses: shfmt=$shfmt_status shellcheck=$shellcheck_status"
-              test "$shfmt_status" -eq 0 -a "$shellcheck_status" -eq 0
-            ' >>ci-diagnostics.log 2>&1
-          lint_status=$?
-
-          echo '=== nix flake check ===' >>ci-diagnostics.log
-          nix flake check --print-build-logs >>ci-diagnostics.log 2>&1
-          nix_status=$?
-
-          echo "statuses: checkbashisms=$bashisms_status lint=$lint_status nix=$nix_status" >>ci-diagnostics.log
-          status=0
-          if ((bashisms_status || lint_status || nix_status)); then
-            status=1
-          fi
-          echo "status=$status" >>"$GITHUB_OUTPUT"
-          exit 0
-
-      - name: Upload diagnostics
+      - name: Upload checker configuration
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: checkbashisms-diagnostics
-          path: ci-diagnostics.log
-
-      - name: Check result
-        if: always()
-        run: exit "${{ steps.diagnostics.outputs.status }}"
+          name: checker-configuration
+          path: checker-config.log
