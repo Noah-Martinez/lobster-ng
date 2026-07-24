@@ -22,7 +22,11 @@ jobs:
         uses: cachix/install-nix-action@v31
 
       - name: Check flake
-        run: nix flake check --print-build-logs
+        run: |
+          if ! nix flake check --print-build-logs >nix-check.log 2>&1; then
+            tail -n 100 nix-check.log
+            exit 1
+          fi
 
       - name: Verify hardened script
         run: |
