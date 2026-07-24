@@ -31,7 +31,9 @@ https://github.com/justchokingaround/lobster/assets/44473782/d597335c-42a9-4e45-
   - [`-j` / `--json`](#-j----json-argument)
   - [`-l` / `--language`](#-l----language-language-argument)
   - [`--rofi` / `--external-menu`](#--rofi----external-menu-argument)
-  - [`-p` / `--provider`](#-p----provider-provider-argument)
+  - [`--catalog-provider`](#catalog-and-stream-providers)
+  - [`-p` / `--provider` / `--stream-provider`](#catalog-and-stream-providers)
+  - [`--list-providers`](#catalog-and-stream-providers)
   - [`-q` / `--quality`](#-q----quality-quality-argument)
   - [`-n` / `--no-subs`](#-n----no-subs-quality-argument)
   - [`-r` / `--recent`](#-r----recent-tvmovie-argument)
@@ -100,16 +102,27 @@ mist update && mist install lobster-git
 #### Linux (from source)
 
 ```sh
-sudo curl -sL github.com/Noah-Martinez/lobster-ng/raw/main/lobster.sh -o /usr/local/bin/lobster &&
-sudo chmod +x /usr/local/bin/lobster
+git clone --depth 1 https://github.com/Noah-Martinez/lobster-ng.git
+cd lobster-ng
+sudo install -Dm755 lobster.sh /usr/local/bin/lobster
+mkdir -p "$HOME/.local/share/lobster/providers/catalog" \
+         "$HOME/.local/share/lobster/providers/stream"
+install -m755 providers/catalog/*.sh "$HOME/.local/share/lobster/providers/catalog/"
+install -m755 providers/stream/*.sh "$HOME/.local/share/lobster/providers/stream/"
 ```
+
+The provider scripts are required; installing only `lobster.sh` is not enough.
 
 #### Android (requires Termux and [mpv-android](https://github.com/mpv-android/mpv-android))
 
 ```sh
-curl -sLO github.com/Noah-Martinez/lobster-ng/raw/main/lobster.sh &&
-chmod +x lobster.sh &&
-mv lobster.sh /data/data/com.termux/files/usr/bin/lobster
+pkg install git jq
+git clone --depth 1 https://github.com/Noah-Martinez/lobster-ng.git
+cd lobster-ng
+install -m755 lobster.sh "$PREFIX/bin/lobster"
+mkdir -p "$HOME/.local/share/lobster/providers"
+cp -R providers/catalog providers/stream "$HOME/.local/share/lobster/providers/"
+chmod +x "$HOME/.local/share/lobster/providers"/*/*.sh
 ```
 
 If you're using Android 14 or newer make sure to run this before:
@@ -154,8 +167,13 @@ nix flake update
 #### Mac
 
 ```sh
-curl -sL github.com/Noah-Martinez/lobster-ng/raw/main/lobster.sh -o "$(brew --prefix)"/bin/lobster &&
-chmod +x "$(brew --prefix)"/bin/lobster
+brew install jq
+git clone --depth 1 https://github.com/Noah-Martinez/lobster-ng.git
+cd lobster-ng
+install -m755 lobster.sh "$(brew --prefix)/bin/lobster"
+mkdir -p "$HOME/.local/share/lobster/providers"
+cp -R providers/catalog providers/stream "$HOME/.local/share/lobster/providers/"
+chmod +x "$HOME/.local/share/lobster/providers"/*/*.sh
 ```
 
 #### iOS
@@ -164,15 +182,18 @@ Install iSH and VLC from the app store.
 <summary> Install dependencies: </summary>
 
 ```sh
-apk update; apk add grep sed curl fzf patch
+apk update; apk add grep sed curl fzf patch jq git
 ```
 
 <summary> Install lobster: </summary>
 
 ```sh
-curl -O "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh"
-chmod +x lobster.sh
-mv lobster.sh /usr/local/bin/lobster
+git clone --depth 1 https://github.com/Noah-Martinez/lobster-ng.git
+cd lobster-ng
+install -m755 lobster.sh /usr/local/bin/lobster
+mkdir -p "$HOME/.local/share/lobster/providers"
+cp -R providers/catalog providers/stream "$HOME/.local/share/lobster/providers/"
+chmod +x "$HOME/.local/share/lobster/providers"/*/*.sh
 ```
 
 #### Windows
@@ -200,7 +221,7 @@ irm get.scoop.sh | iex
 
 ```ps
 scoop bucket add extras
-scoop install git mpv fzf
+scoop install git mpv fzf jq
 ```
 
 3. Install windows terminal (you don't need to have a microsoft account for
@@ -211,22 +232,20 @@ scoop install git mpv fzf
 
 (The next steps are to be done in the windows terminal, in a bash shell)
 
-5. Download the script file to the current directory
+5. Clone Lobster, including its provider scripts
 
 ```sh
-curl -O "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh"
+git clone --depth 1 https://github.com/Noah-Martinez/lobster-ng.git
+cd lobster-ng
 ```
 
-6. Give it executable permissions
+6. Install the script and providers
 
 ```sh
-chmod +x lobster.sh
-```
-
-7. Copy the script to path
-
-```sh
-cp lobster.sh /usr/bin/lobster
+install -m755 lobster.sh /usr/bin/lobster
+mkdir -p "$HOME/.local/share/lobster/providers"
+cp -R providers/catalog providers/stream "$HOME/.local/share/lobster/providers/"
+chmod +x "$HOME/.local/share/lobster/providers"/*/*.sh
 ```
 
 8. Use lobster
@@ -262,8 +281,12 @@ Options:
       Specify the subtitle language (if no language is provided, it defaults to english)
     --rofi, --external-menu
       Use rofi instead of fzf
-    -p, --provider
-      Specify the provider to watch from (if no provider is provided, it defaults to Vidcloud) (currently supported: Vidcloud, UpCloud)
+    --catalog-provider [provider]
+      Force a catalog provider instead of automatic fallback (currently supported: tmdb, imdb)
+    -p, --provider, --stream-provider [provider]
+      Force a stream provider instead of automatic fallback (currently supported: vidapi, vidcore)
+    --list-providers
+      Show installed catalog and stream providers and their fallback order
     -q, --quality
       Specify the video quality (if no quality is provided, it defaults to 1080)
     -r, --recent [movies|tv]
@@ -287,7 +310,28 @@ Options:
     lobster -i a silent voice --rofi
     lobster -l spanish -q 720 fight club -i -d
     lobster -l spanish blade runner --json
+    lobster --catalog-provider imdb ugly betty
+    lobster --stream-provider vidcore fight club
 ```
+
+### Catalog and stream providers
+
+Lobster uses separate providers for discovery and playback:
+
+```text
+Catalog: TMDB -> IMDb
+Stream:  VidAPI -> VidCore
+```
+
+The fallback order is automatic, so normal users do not need to choose a provider.
+Use `--catalog-provider` or `--stream-provider` only to force one provider for
+debugging or preference. `-p` / `--provider` remains an alias for
+`--stream-provider`. Run `lobster --list-providers` to see installed providers
+and the configured order.
+
+Provider failures are reported separately: Lobster distinguishes no catalog
+matches, catalog/network/parser failures, unsupported identifiers, and stream
+or extractor failures.
 
 ### `-c` / `--continue` argument
 
