@@ -1,0 +1,32 @@
+name: Bump version
+
+on:
+  push:
+    branches:
+      - agent/security-hardening-flake
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/security-hardening-flake
+
+      - name: Align versions
+        run: |
+          sed -i 's/^LOBSTER_VERSION="4\.6\.7"$/LOBSTER_VERSION="4.6.8"/' lobster.sh
+          sed -i 's/version = "4\.6\.7";/version = "4.6.8";/' default.nix
+          rm .github/workflows/bump-version.yml
+
+      - name: Commit
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "chore: bump version to 4.6.8"
+          git push
