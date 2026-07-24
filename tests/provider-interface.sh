@@ -27,10 +27,13 @@ imdb_output=$(LOBSTER_FIXTURE_FILE="$tmp_dir/imdb-search.json" "$repo_dir/provid
 printf '%s\n' "$imdb_output" | grep -F 'imdb-tt0805669' >/dev/null
 printf '%s\n' "$imdb_output" | grep -F 'imdb:tt0805669' >/dev/null
 
-[ "$("$repo_dir/providers/stream/vidapi.sh" movie tmdb:550 '' '' en)" = 'https://vaplayer.ru/embed/movie/550?lang=en' ]
-[ "$("$repo_dir/providers/stream/vidcore.sh" tv tmdb:1396 1 1 en)" = 'https://vidcore.org/embed/tv/1396/1/1?sub=en' ]
+vidapi_url=$("$repo_dir/providers/stream/vidapi.sh" movie tmdb:550 '' '' en)
+[ "$vidapi_url" = 'https://vaplayer.ru/embed/movie/550?lang=en' ]
+vidcore_url=$("$repo_dir/providers/stream/vidcore.sh" tv tmdb:1396 1 1 en)
+[ "$vidcore_url" = 'https://vidcore.org/embed/tv/1396/1/1?sub=en' ]
 
 mkdir -p "$tmp_dir/bin" "$tmp_dir/home/.config/lobster" "$tmp_dir/data" "$tmp_dir/cache"
+shell_path=$(command -v sh)
 cat >"$tmp_dir/home/.config/lobster/lobster_config.sh" <<EOF_CONFIG
 player="true"
 history="false"
@@ -38,7 +41,7 @@ remove_tmp_lobster="true"
 EOF_CONFIG
 
 {
-    printf '#!%s\n' "$(command -v sh)"
+    printf '#!%s\n' "$shell_path"
     cat <<'EOF_CURL'
 json='{"sources":[{"file":"https://example.test/playlist.m3u8"}],"tracks":[]}'
 printf '%s' "$json"
@@ -46,7 +49,7 @@ EOF_CURL
 } >"$tmp_dir/bin/curl"
 
 {
-    printf '#!%s\n' "$(command -v sh)"
+    printf '#!%s\n' "$shell_path"
     cat <<'EOF_FZF'
 printf '\n'
 head -n 1

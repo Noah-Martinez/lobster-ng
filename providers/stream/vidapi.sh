@@ -28,6 +28,7 @@ case "$media_type" in
     tv)
         case "$season:$episode" in
             *[!0-9:]* | :* | *:) fail 64 "TV playback requires numeric season and episode" ;;
+            *) ;;
         esac
         printf 'https://vaplayer.ru/embed/tv/%s/%s/%s?lang=%s\n' "$id" "$season" "$episode" "$language"
         ;;

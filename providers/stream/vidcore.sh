@@ -27,6 +27,7 @@ case "$media_type" in
     tv)
         case "$season:$episode" in
             *[!0-9:]* | :* | *:) fail 64 "TV playback requires numeric season and episode" ;;
+            *) ;;
         esac
         printf 'https://vidcore.org/embed/tv/%s/%s/%s?sub=%s\n' "$id" "$season" "$episode" "$language"
         ;;

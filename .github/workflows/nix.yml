@@ -20,22 +20,5 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@v31
 
-      - name: Capture checker configuration
-        shell: bash
-        run: |
-          {
-            echo '=== workflow files using action-sh-checker ==='
-            grep -R -l 'action-sh-checker' .github/workflows | while read -r file; do
-              echo "--- $file ---"
-              cat "$file"
-            done
-            echo '=== nix flake check ==='
-            nix flake check --print-build-logs
-          } >checker-config.log 2>&1
-
-      - name: Upload checker configuration
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: checker-configuration
-          path: checker-config.log
+      - name: Check flake
+        run: nix flake check --print-build-logs

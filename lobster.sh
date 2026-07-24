@@ -1057,6 +1057,7 @@ EOF
                 send_notification "Installed through Nix" "5000" "" "Update the lobster-ng flake input and rebuild instead"
                 exit 1
                 ;;
+            *) ;;
         esac
 
         update=$(curl -s "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh" || exit 1)

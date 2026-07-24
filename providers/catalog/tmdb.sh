@@ -105,6 +105,7 @@ emit_numbered_links() {
         case "$kind" in
             season) printf 'Season %s\t%s\n' "$number" "$number" ;;
             episode) printf 'Episode %s\t%s\n' "$number" "$number" ;;
+            *) fail 64 "unsupported numbered-link kind '$kind'" ;;
         esac
     done
 }
@@ -152,6 +153,7 @@ case "${1:-}" in
         season=${3:-}
         case "$season" in
             *[!0-9]* | '') fail 64 "invalid season '$season'" ;;
+            *) ;;
         esac
         fetch_page "https://www.themoviedb.org/tv/$media_id/season/$season"
         emit_numbered_links episode "/episode/" ||
