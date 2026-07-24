@@ -100,14 +100,14 @@ mist update && mist install lobster-git
 #### Linux (from source)
 
 ```sh
-sudo curl -sL github.com/justchokingaround/lobster/raw/main/lobster.sh -o /usr/local/bin/lobster &&
+sudo curl -sL github.com/Noah-Martinez/lobster-ng/raw/main/lobster.sh -o /usr/local/bin/lobster &&
 sudo chmod +x /usr/local/bin/lobster
 ```
 
 #### Android (requires Termux and [mpv-android](https://github.com/mpv-android/mpv-android))
 
 ```sh
-curl -sLO github.com/justchokingaround/lobster/raw/main/lobster.sh &&
+curl -sLO github.com/Noah-Martinez/lobster-ng/raw/main/lobster.sh &&
 chmod +x lobster.sh &&
 mv lobster.sh /data/data/com.termux/files/usr/bin/lobster
 ```
@@ -122,7 +122,7 @@ pkg install termux-am
 Add this to you flake.nix
 
 ```nix
-inputs.lobster.url = "github:justchokingaround/lobster";
+inputs.lobster.url = "github:Noah-Martinez/lobster-ng";
 ```
 
 Add this to you configuration.nix
@@ -136,7 +136,7 @@ environment.systemPackages = [
 ##### Or for run the script once use
 
 ```sh
-nix run github:justchokingaround/lobster#lobster
+nix run github:Noah-Martinez/lobster-ng#lobster
 ```
 
 ##### Nixos (Flake) update
@@ -154,7 +154,7 @@ nix flake update
 #### Mac
 
 ```sh
-curl -sL github.com/justchokingaround/lobster/raw/main/lobster.sh -o "$(brew --prefix)"/bin/lobster &&
+curl -sL github.com/Noah-Martinez/lobster-ng/raw/main/lobster.sh -o "$(brew --prefix)"/bin/lobster &&
 chmod +x "$(brew --prefix)"/bin/lobster
 ```
 
@@ -170,7 +170,7 @@ apk update; apk add grep sed curl fzf patch
 <summary> Install lobster: </summary>
 
 ```sh
-curl -O "https://raw.githubusercontent.com/justchokingaround/lobster/main/lobster.sh"
+curl -O "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh"
 chmod +x lobster.sh
 mv lobster.sh /usr/local/bin/lobster
 ```
@@ -214,7 +214,7 @@ scoop install git mpv fzf
 5. Download the script file to the current directory
 
 ```sh
-curl -O "https://raw.githubusercontent.com/justchokingaround/lobster/main/lobster.sh"
+curl -O "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh"
 ```
 
 6. Give it executable permissions

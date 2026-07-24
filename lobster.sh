@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-LOBSTER_VERSION="4.6.7"
+LOBSTER_VERSION="4.6.8"
 
 ### General Variables ###
 config_file="$HOME/.config/lobster/lobster_config.sh"
@@ -848,24 +848,22 @@ EOF
                 ;;
             mpv | mpv.exe)
                 [ -z "$continue_choice" ] && check_history
-                player_cmd="$player"
-                [ -n "$resume_from" ] && player_cmd="$player_cmd --start='$resume_from'"
-                [ -n "$subs_links" ] && player_cmd="$player_cmd $subs_arg='$subs_links'"
-                # Escape ' symbols in titles to prevent unterminated string error
-                escaped_title=$(printf "%s" "$displayed_title" | "$sed" "s/'/'\\\\''/g")
-                player_cmd="$player_cmd --force-media-title='$escaped_title' '$video_link'"
+                set -- "$player"
+                [ -n "$resume_from" ] && set -- "$@" "--start=$resume_from"
+                [ -n "$subs_links" ] && set -- "$@" "$subs_arg=$subs_links"
+                set -- "$@" "--force-media-title=$displayed_title" "$video_link"
                 case "$(uname -s)" in
-                    MINGW* | *Msys) player_cmd="$player_cmd --write-filename-in-watch-later-config --save-position-on-quit --quiet" ;;
-                    *) player_cmd="$player_cmd --watch-later-directory='$watchlater_dir' --write-filename-in-watch-later-config --save-position-on-quit --quiet" ;;
+                    MINGW* | *Msys) ;;
+                    *) set -- "$@" "--watch-later-directory=$watchlater_dir" ;;
                 esac
+                set -- "$@" --write-filename-in-watch-later-config --save-position-on-quit --quiet
 
                 # Check if the system supports Unix domain sockets
                 if command -v nc >/dev/null 2>&1 && [ -S "$lobster_socket" ] 2>/dev/null; then
-                    player_cmd="$player_cmd --input-ipc-server='$lobster_socket'"
+                    set -- "$@" "--input-ipc-server=$lobster_socket"
                 fi
 
-                # Use eval to properly handle spaces in the command
-                eval "$player_cmd" >&3 &
+                "$@" >&3 &
 
                 if [ -z "$quality" ]; then
                     link=$(printf "%s" "$video_link" | $sed "s/\/playlist.m3u8/\/1080\/index.m3u8/g")
@@ -902,7 +900,7 @@ EOF
         which_lobster="$(command -v lobster)"
         [ -z "$which_lobster" ] && send_notification "Can't find lobster in PATH"
         [ -z "$which_lobster" ] && exit 1
-        update=$(curl -s "https://raw.githubusercontent.com/justchokingaround/lobster/main/lobster.sh" || exit 1)
+        update=$(curl -s "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh" || exit 1)
         update="$(printf '%s\n' "$update" | diff -u "$which_lobster" -)"
         if [ -z "$update" ]; then
             send_notification "Script is up to date :)"
