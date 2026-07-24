@@ -1,0 +1,130 @@
+name: Minimize maintenance PR
+
+on:
+  push:
+    branches:
+      - agent/security-hardening-flake
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  minimize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/security-hardening-flake
+          fetch-depth: 0
+
+      - name: Restore main and apply focused changes
+        run: |
+          git fetch origin main
+          git show origin/main:lobster.sh > lobster.sh
+          git show origin/main:default.nix > default.nix
+          git show origin/main:flake.nix > flake.nix
+          git show origin/main:README.md > README.md
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          script = Path("lobster.sh")
+          text = script.read_text()
+
+          old = r'''                player_cmd="$player"
+                          [ -n "$resume_from" ] && player_cmd="$player_cmd --start='$resume_from'"
+                          [ -n "$subs_links" ] && player_cmd="$player_cmd $subs_arg='$subs_links'"
+                          # Escape ' symbols in titles to prevent unterminated string error
+                          escaped_title=$(printf "%s" "$displayed_title" | "$sed" "s/'/'\\\\''/g")
+                          player_cmd="$player_cmd --force-media-title='$escaped_title' '$video_link'"
+                          case "$(uname -s)" in
+                              MINGW* | *Msys) player_cmd="$player_cmd --write-filename-in-watch-later-config --save-position-on-quit --quiet" ;;
+                              *) player_cmd="$player_cmd --watch-later-directory='$watchlater_dir' --write-filename-in-watch-later-config --save-position-on-quit --quiet" ;;
+                          esac
+          
+                          # Check if the system supports Unix domain sockets
+                          if command -v nc >/dev/null 2>&1 && [ -S "$lobster_socket" ] 2>/dev/null; then
+                              player_cmd="$player_cmd --input-ipc-server='$lobster_socket'"
+                          fi
+          
+                          # Use eval to properly handle spaces in the command
+                          eval "$player_cmd" >&3 &
+          '''
+
+          new = r'''                set -- "$player"
+                          [ -n "$resume_from" ] && set -- "$@" "--start=$resume_from"
+                          [ -n "$subs_links" ] && set -- "$@" "$subs_arg=$subs_links"
+                          set -- "$@" "--force-media-title=$displayed_title" "$video_link"
+                          case "$(uname -s)" in
+                              MINGW* | *Msys) ;;
+                              *) set -- "$@" "--watch-later-directory=$watchlater_dir" ;;
+                          esac
+                          set -- "$@" --write-filename-in-watch-later-config --save-position-on-quit --quiet
+          
+                          # Check if the system supports Unix domain sockets
+                          if command -v nc >/dev/null 2>&1 && [ -S "$lobster_socket" ] 2>/dev/null; then
+                              set -- "$@" "--input-ipc-server=$lobster_socket"
+                          fi
+          
+                          "$@" >&3 &
+          '''
+
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one MPV command block, found {text.count(old)}")
+          text = text.replace(old, new, 1)
+          text = text.replace(
+              "https://raw.githubusercontent.com/justchokingaround/lobster/main/lobster.sh",
+              "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh",
+          )
+          script.write_text(text)
+
+          package = Path("default.nix")
+          text = package.read_text()
+          text = text.replace('version = "4.3.0";', 'version = "4.6.7";')
+          text = text.replace(
+              'homepage = "https://github.com/justchokingaround/lobster";',
+              'homepage = "https://github.com/Noah-Martinez/lobster-ng";',
+          )
+          package.write_text(text)
+
+          readme = Path("README.md")
+          text = readme.read_text()
+          text = text.replace(
+              "github.com/justchokingaround/lobster/raw/main/lobster.sh",
+              "github.com/Noah-Martinez/lobster-ng/raw/main/lobster.sh",
+          )
+          text = text.replace(
+              "https://raw.githubusercontent.com/justchokingaround/lobster/main/lobster.sh",
+              "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh",
+          )
+          text = text.replace(
+              'inputs.lobster.url = "github:justchokingaround/lobster";',
+              'inputs.lobster.url = "github:Noah-Martinez/lobster-ng";',
+          )
+          text = text.replace(
+              "nix run github:justchokingaround/lobster#lobster",
+              "nix run github:Noah-Martinez/lobster-ng#lobster",
+          )
+          readme.write_text(text)
+          PY
+
+          rm -f \
+            .github/dependabot.yml \
+            .github/workflows/ci.yml \
+            .github/workflows/sync-maintained-source.yml \
+            .github/workflows/minimize-pr.yml \
+            SECURITY.md \
+            scripts/harden.py \
+            scripts/update_readme.py
+          rmdir scripts 2>/dev/null || true
+
+      - name: Commit focused changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: keep shell execution safe and packageable"
+          git push
