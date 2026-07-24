@@ -1,5 +1,5 @@
 {
-  description = "Security-hardened Lobster movie and TV streaming CLI";
+  description = "Maintained fork of the Lobster movie and TV streaming CLI";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -38,6 +38,6 @@
       };
     });
 
-    formatter = eachSystem (system: pkgsFor.${system}.nixfmt);
+    formatter = eachSystem (system: pkgsFor.${system}.nixpkgs-fmt);
   };
 }
