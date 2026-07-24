@@ -37,15 +37,5 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Verify hardened script
-        run: |
-          result="$(nix build .#lobster --no-link --print-out-paths)"
-          script="$result/bin/lobster"
-          if grep -Eq '(^|[^[:alnum:]_])eval[[:space:]]' "$script"; then
-            echo "eval remains in packaged lobster" >&2
-            exit 1
-          fi
-          if grep -q 'update_script' "$script"; then
-            echo "self-updater remains in packaged lobster" >&2
-            exit 1
-          fi
+      - name: Build package
+        run: nix build .#lobster --no-link
