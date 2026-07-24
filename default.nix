@@ -17,7 +17,7 @@
 }:
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "lobster-ng";
-  version = "4.6.7";
+  version = "4.6.8";
 
   src = builtins.path {
     name = "${finalAttrs.pname}-${finalAttrs.version}";
