@@ -23,7 +23,7 @@ index 156ca98..0000000 100755
 -    -u, -U, --update
 -      Update the script
      -v, -V, --version
-       Show the version of the script and exit
+       Show the version of the script
      -x, --debug
 @@ -157,6 +156,31 @@ dep_ch() {
      done
@@ -149,7 +149,6 @@ index 156ca98..0000000 100755
      download_video() {
          title="$(printf "%s" "$2" | tr -d ':/')"
 @@ -1200,7 +1218,6 @@ EOF
-             -r | --recent) recent="$2" && shift 2 ;;
              -s | --syncplay) player="syncplay" && shift ;;
              -t | --trending) trending="1" && shift ;;
 -            -u | -U | --update) update_script ;;
