@@ -12,6 +12,7 @@
   makeWrapper,
   mpv,
   openssl,
+  python3,
   shellcheck,
 }:
 stdenvNoCC.mkDerivation (finalAttrs: {
@@ -24,12 +25,15 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     path = ./.;
   };
 
-  patches = [./patches/security-hardening.patch];
-
   nativeBuildInputs = [
     makeWrapper
+    python3
     shellcheck
   ];
+
+  postPatch = ''
+    python3 scripts/harden.py lobster.sh
+  '';
 
   wrapperPaths = lib.makeBinPath [
     coreutils
