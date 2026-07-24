@@ -1,5 +1,5 @@
 {
-  description = "CLI to watch Movies/TV Shows from the terminal";
+  description = "Maintained fork of the Lobster movie and TV streaming CLI";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -24,6 +24,21 @@
       lobster = pkgsFor.${system}.callPackage ./default.nix {};
       default = self.packages.${system}.lobster;
     });
+
+    checks = eachSystem (system: {
+      package = self.packages.${system}.lobster;
+      version = self.packages.${system}.lobster.passthru.tests.version;
+    });
+
+    devShells = eachSystem (system: {
+      default = pkgsFor.${system}.mkShellNoCC {
+        packages = with pkgsFor.${system}; [
+          shellcheck
+          shfmt
+        ];
+      };
+    });
+
+    formatter = eachSystem (system: pkgsFor.${system}.nixpkgs-fmt);
   };
 }
-
