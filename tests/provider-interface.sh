@@ -29,9 +29,10 @@ printf '%s\n' "$imdb_output" | grep -F 'Ugly Betty [2006]' >/dev/null
 [ "$("$repo_dir/providers/stream/vidapi.sh" movie tmdb:550 '' '' en)" = 'https://vaplayer.ru/embed/movie/550?lang=en' ]
 [ "$("$repo_dir/providers/stream/vidcore.sh" tv tmdb:1396 1 1 en)" = 'https://vidcore.org/embed/tv/1396/1/1?sub=en' ]
 
-mkdir -p "$tmp_dir/bin"
-cat >"$tmp_dir/bin/curl" <<'EOF_CURL'
-#!/usr/bin/env sh
+mkdir -p "$tmp_dir/bin" "$tmp_dir/home" "$tmp_dir/config" "$tmp_dir/data" "$tmp_dir/cache"
+{
+    printf '#!%s\n' "$(command -v sh)"
+    cat <<'EOF_CURL'
 out=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -49,9 +50,14 @@ else
     printf '%s' "$json"
 fi
 EOF_CURL
+} >"$tmp_dir/bin/curl"
 chmod +x "$tmp_dir/bin/curl"
 
-main_output=$(PATH="$tmp_dir/bin:$PATH" \
+main_output=$(HOME="$tmp_dir/home" \
+    XDG_CONFIG_HOME="$tmp_dir/config" \
+    XDG_DATA_HOME="$tmp_dir/data" \
+    XDG_CACHE_HOME="$tmp_dir/cache" \
+    PATH="$tmp_dir/bin:$PATH" \
     LOBSTER_PROVIDER_DIR="$repo_dir/providers" \
     LOBSTER_FIXTURE_FILE="$tmp_dir/tmdb-movie.html" \
     "$repo_dir/lobster.sh" --select-first --json 'Fight Club')
