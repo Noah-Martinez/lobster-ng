@@ -62,7 +62,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   };
 
   meta = {
-    description = "CLI to watch Movies/TV Shows from the terminal";
+    description = "Maintained fork of the Lobster movie and TV streaming CLI";
     homepage = "https://github.com/Noah-Martinez/lobster-ng";
     license = lib.licenses.gpl2;
     maintainers = with lib.maintainers; [NotAShelf];
@@ -71,4 +71,3 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     sourceProvenance = [lib.sourceTypes.fromSource];
   };
 })
-
