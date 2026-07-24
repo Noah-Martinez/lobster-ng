@@ -46,13 +46,25 @@ jobs:
               >>ci-diagnostics.log 2>&1
           shellcheck_status=$?
 
+          echo '=== live catalog smoke test ===' >>ci-diagnostics.log
+          nix develop --command sh -c '
+            echo "-- TMDB --"
+            ./providers/catalog/tmdb.sh search "Ugly Betty" | head -n 3
+            tmdb_status=$?
+            echo "-- IMDb --"
+            ./providers/catalog/imdb.sh search "Ugly Betty" | head -n 3
+            imdb_status=$?
+            test "$tmdb_status" -eq 0 -o "$imdb_status" -eq 0
+          ' >>ci-diagnostics.log 2>&1
+          catalog_status=$?
+
           echo '=== nix flake check ===' >>ci-diagnostics.log
           nix flake check --print-build-logs >>ci-diagnostics.log 2>&1
           nix_status=$?
 
-          echo "statuses: shfmt=$shfmt_status shellcheck=$shellcheck_status nix=$nix_status" >>ci-diagnostics.log
+          echo "statuses: shfmt=$shfmt_status shellcheck=$shellcheck_status catalog=$catalog_status nix=$nix_status" >>ci-diagnostics.log
           status=0
-          if ((shfmt_status || shellcheck_status || nix_status)); then
+          if ((shfmt_status || shellcheck_status || catalog_status || nix_status)); then
             status=1
           fi
           echo "status=$status" >>"$GITHUB_OUTPUT"
@@ -63,7 +75,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ci-diagnostics
-          path: ci-diagnostics.log
+          path: |
+            ci-diagnostics.log
+            lobster.sh
+            providers
+            tests
 
       - name: Check result
         if: always()
