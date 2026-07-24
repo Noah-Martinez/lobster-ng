@@ -51,6 +51,10 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   dontBuild = true;
   doCheck = true;
 
+  postPatch = ''
+    patchShebangs --host lobster.sh providers tests
+  '';
+
   checkPhase = ''
     runHook preCheck
 
@@ -60,10 +64,6 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     ./tests/provider-interface.sh
 
     runHook postCheck
-  '';
-
-  preInstall = ''
-    patchShebangs --host lobster.sh providers tests
   '';
 
   installPhase = ''
