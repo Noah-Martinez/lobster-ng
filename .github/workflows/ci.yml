@@ -28,6 +28,15 @@ jobs:
             exit 1
           fi
 
+      - name: Upload Nix check log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nix-check-log
+          path: nix-check.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Verify hardened script
         run: |
           result="$(nix build .#lobster --no-link --print-out-paths)"
