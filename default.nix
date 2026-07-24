@@ -30,6 +30,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [
     findutils
+    jq
     makeWrapper
     shellcheck
   ];
