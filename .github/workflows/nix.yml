@@ -20,5 +20,40 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@v31
 
-      - name: Check flake
-        run: nix flake check --print-build-logs
+      - name: Collect diagnostics
+        id: diagnostics
+        shell: bash
+        run: |
+          set +e
+          : >ci-diagnostics.log
+
+          echo '=== shfmt ===' >>ci-diagnostics.log
+          nix develop --command sh -c 'shfmt --version; shfmt -d lobster.sh providers tests' >>ci-diagnostics.log 2>&1
+          shfmt_status=$?
+
+          echo '=== shellcheck ===' >>ci-diagnostics.log
+          nix develop --command sh -c 'shellcheck --version; shellcheck lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh' >>ci-diagnostics.log 2>&1
+          shellcheck_status=$?
+
+          echo '=== nix flake check ===' >>ci-diagnostics.log
+          nix flake check --print-build-logs >>ci-diagnostics.log 2>&1
+          nix_status=$?
+
+          echo "statuses: shfmt=$shfmt_status shellcheck=$shellcheck_status nix=$nix_status" >>ci-diagnostics.log
+          status=0
+          if ((shfmt_status || shellcheck_status || nix_status)); then
+            status=1
+          fi
+          echo "status=$status" >>"$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-diagnostics
+          path: ci-diagnostics.log
+
+      - name: Check result
+        if: always()
+        run: exit "${{ steps.diagnostics.outputs.status }}"
