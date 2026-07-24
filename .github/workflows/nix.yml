@@ -25,25 +25,36 @@ jobs:
         shell: bash
         run: |
           set +e
-          {
-            echo '=== shfmt ==='
-            nix develop --command sh -c 'shfmt -d lobster.sh providers tests'
-            shfmt_status=$?
+          : >ci-diagnostics.log
 
-            echo '=== shellcheck ==='
-            nix develop --command shellcheck --severity=error lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh
-            shellcheck_status=$?
+          echo '=== current shfmt ===' >>ci-diagnostics.log
+          nix shell \
+            github:NixOS/nixpkgs/nixos-unstable#shellcheck \
+            github:NixOS/nixpkgs/nixos-unstable#shfmt \
+            --command sh -c '
+              shellcheck --version
+              shfmt --version
+              shfmt -d lobster.sh providers tests
+            ' >>ci-diagnostics.log 2>&1
+          shfmt_status=$?
 
-            echo '=== nix flake check ==='
-            nix flake check --print-build-logs
-            nix_status=$?
+          echo '=== current shellcheck ===' >>ci-diagnostics.log
+          nix shell \
+            github:NixOS/nixpkgs/nixos-unstable#shellcheck \
+            --command shellcheck \
+              lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh \
+              >>ci-diagnostics.log 2>&1
+          shellcheck_status=$?
 
-            echo "statuses: shfmt=$shfmt_status shellcheck=$shellcheck_status nix=$nix_status"
-            if ((shfmt_status || shellcheck_status || nix_status)); then
-              exit 1
-            fi
-          } >ci-diagnostics.log 2>&1
-          status=$?
+          echo '=== nix flake check ===' >>ci-diagnostics.log
+          nix flake check --print-build-logs >>ci-diagnostics.log 2>&1
+          nix_status=$?
+
+          echo "statuses: shfmt=$shfmt_status shellcheck=$shellcheck_status nix=$nix_status" >>ci-diagnostics.log
+          status=0
+          if ((shfmt_status || shellcheck_status || nix_status)); then
+            status=1
+          fi
           echo "status=$status" >>"$GITHUB_OUTPUT"
           exit 0
 
