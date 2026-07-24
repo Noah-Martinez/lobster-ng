@@ -38,6 +38,6 @@
       };
     });
 
-    formatter = eachSystem (system: pkgsFor.${system}.nixfmt-rfc-style);
+    formatter = eachSystem (system: pkgsFor.${system}.nixfmt);
   };
 }
