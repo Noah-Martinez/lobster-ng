@@ -1,5 +1,5 @@
 {
-  description = "Maintained fork of the Lobster movie and TV streaming CLI";
+  description = "Maintained, provider-based Lobster movie and TV streaming CLI";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -33,6 +33,7 @@
     devShells = eachSystem (system: {
       default = pkgsFor.${system}.mkShellNoCC {
         packages = with pkgsFor.${system}; [
+          jq
           shellcheck
           shfmt
         ];
