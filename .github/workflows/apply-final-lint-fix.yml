@@ -24,85 +24,53 @@ jobs:
           python3 <<'PY'
           from pathlib import Path
 
-          def replace(path: str, old: str, new: str) -> None:
+          def replace_once(path: str, old: str, new: str) -> None:
               file = Path(path)
               text = file.read_text()
-              if old not in text:
-                  raise SystemExit(f"expected fragment not found in {path}:\n{old}")
+              if text.count(old) != 1:
+                  raise SystemExit(f"expected one match in {path}, found {text.count(old)}: {old!r}")
               file.write_text(text.replace(old, new, 1))
 
-          replace(
+          replace_once(
               "lobster.sh",
-              '''            /nix/store/*)
-                          send_notification "Installed through Nix" "5000" "" "Update the lobster-ng flake input and rebuild instead"
-                          exit 1
-                          ;;
-                  esac''',
-              '''            /nix/store/*)
-                          send_notification "Installed through Nix" "5000" "" "Update the lobster-ng flake input and rebuild instead"
-                          exit 1
-                          ;;
-                      *) ;;
-                  esac''',
+              "                ;;\n        esac\n\n        update=",
+              "                ;;\n            *) ;;\n        esac\n\n        update=",
           )
 
-          replace(
+          replace_once(
               "providers/catalog/tmdb.sh",
-              '''            season) printf 'Season %s\\t%s\\n' "$number" "$number" ;;
-                      episode) printf 'Episode %s\\t%s\\n' "$number" "$number" ;;
-                  esac''',
-              '''            season) printf 'Season %s\\t%s\\n' "$number" "$number" ;;
-                      episode) printf 'Episode %s\\t%s\\n' "$number" "$number" ;;
-                      *) fail 64 "unsupported numbered-link kind '$kind'" ;;
-                  esac''',
+              "            episode) printf 'Episode %s\\t%s\\n' \"$number\" \"$number\" ;;\n        esac\n    done",
+              "            episode) printf 'Episode %s\\t%s\\n' \"$number\" \"$number\" ;;\n            *) fail 64 \"unsupported numbered-link kind '$kind'\" ;;\n        esac\n    done",
           )
-          replace(
+          replace_once(
               "providers/catalog/tmdb.sh",
-              '''        case "$season" in
-                          *[!0-9]* | '') fail 64 "invalid season '$season'" ;;
-                      esac''',
-              '''        case "$season" in
-                          *[!0-9]* | '') fail 64 "invalid season '$season'" ;;
-                          *) ;;
-                      esac''',
+              "            *[!0-9]* | '') fail 64 \"invalid season '$season'\" ;;\n        esac\n        fetch_page",
+              "            *[!0-9]* | '') fail 64 \"invalid season '$season'\" ;;\n            *) ;;\n        esac\n        fetch_page",
           )
 
           for path in ("providers/stream/vidapi.sh", "providers/stream/vidcore.sh"):
-              replace(
+              replace_once(
                   path,
-                  '''        case "$season:$episode" in
-                              *[!0-9:]* | :* | *:) fail 64 "TV playback requires numeric season and episode" ;;
-                          esac''',
-                  '''        case "$season:$episode" in
-                              *[!0-9:]* | :* | *:) fail 64 "TV playback requires numeric season and episode" ;;
-                              *) ;;
-                          esac''',
+                  "            *[!0-9:]* | :* | *:) fail 64 \"TV playback requires numeric season and episode\" ;;\n        esac\n        printf",
+                  "            *[!0-9:]* | :* | *:) fail 64 \"TV playback requires numeric season and episode\" ;;\n            *) ;;\n        esac\n        printf",
               )
 
-          replace(
+          replace_once(
               "tests/provider-interface.sh",
-              '''[ "$("$repo_dir/providers/stream/vidapi.sh" movie tmdb:550 '' '' en)" = 'https://vaplayer.ru/embed/movie/550?lang=en' ]
-          [ "$("$repo_dir/providers/stream/vidcore.sh" tv tmdb:1396 1 1 en)" = 'https://vidcore.org/embed/tv/1396/1/1?sub=en' ]''',
-              '''vidapi_url=$("$repo_dir/providers/stream/vidapi.sh" movie tmdb:550 '' '' en)
-          [ "$vidapi_url" = 'https://vaplayer.ru/embed/movie/550?lang=en' ]
-          vidcore_url=$("$repo_dir/providers/stream/vidcore.sh" tv tmdb:1396 1 1 en)
-          [ "$vidcore_url" = 'https://vidcore.org/embed/tv/1396/1/1?sub=en' ]''',
+              "[ \"$(\"$repo_dir/providers/stream/vidapi.sh\" movie tmdb:550 '' '' en)\" = 'https://vaplayer.ru/embed/movie/550?lang=en' ]\n[ \"$(\"$repo_dir/providers/stream/vidcore.sh\" tv tmdb:1396 1 1 en)\" = 'https://vidcore.org/embed/tv/1396/1/1?sub=en' ]",
+              "vidapi_url=$(\"$repo_dir/providers/stream/vidapi.sh\" movie tmdb:550 '' '' en)\n[ \"$vidapi_url\" = 'https://vaplayer.ru/embed/movie/550?lang=en' ]\nvidcore_url=$(\"$repo_dir/providers/stream/vidcore.sh\" tv tmdb:1396 1 1 en)\n[ \"$vidcore_url\" = 'https://vidcore.org/embed/tv/1396/1/1?sub=en' ]",
           )
-          replace(
+          replace_once(
               "tests/provider-interface.sh",
-              '''mkdir -p "$tmp_dir/bin" "$tmp_dir/home/.config/lobster" "$tmp_dir/data" "$tmp_dir/cache"
-          cat >"$tmp_dir/home/.config/lobster/lobster_config.sh"''',
-              '''mkdir -p "$tmp_dir/bin" "$tmp_dir/home/.config/lobster" "$tmp_dir/data" "$tmp_dir/cache"
-          shell_path=$(command -v sh)
-          cat >"$tmp_dir/home/.config/lobster/lobster_config.sh"''',
+              "mkdir -p \"$tmp_dir/bin\" \"$tmp_dir/home/.config/lobster\" \"$tmp_dir/data\" \"$tmp_dir/cache\"\ncat >\"$tmp_dir/home/.config/lobster/lobster_config.sh\"",
+              "mkdir -p \"$tmp_dir/bin\" \"$tmp_dir/home/.config/lobster\" \"$tmp_dir/data\" \"$tmp_dir/cache\"\nshell_path=$(command -v sh)\ncat >\"$tmp_dir/home/.config/lobster/lobster_config.sh\"",
           )
-          text = Path("tests/provider-interface.sh").read_text()
-          expected = '''    printf '#!%s\\n' "$(command -v sh)"'''
-          if text.count(expected) != 2:
-              raise SystemExit("expected two generated-script shebangs")
-          Path("tests/provider-interface.sh").write_text(
-              text.replace(expected, '''    printf '#!%s\\n' "$shell_path"''')
-          )
+          tests = Path("tests/provider-interface.sh")
+          text = tests.read_text()
+          old = "    printf '#!%s\\n' \"$(command -v sh)\""
+          if text.count(old) != 2:
+              raise SystemExit(f"expected two generated shebangs, found {text.count(old)}")
+          tests.write_text(text.replace(old, "    printf '#!%s\\n' \"$shell_path\""))
           PY
 
           cat >.github/workflows/nix.yml <<'EOF_NIX'
