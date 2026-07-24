@@ -20,5 +20,47 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@v31
 
-      - name: Check flake
-        run: nix flake check --print-build-logs
+      - name: Collect current lint diagnostics
+        id: diagnostics
+        shell: bash
+        run: |
+          set +e
+          : >ci-diagnostics.log
+          nix shell \
+            github:NixOS/nixpkgs/nixos-unstable#shellcheck \
+            github:NixOS/nixpkgs/nixos-unstable#shfmt \
+            --command sh -c '
+              shellcheck --version
+              shfmt --version
+              echo "=== shfmt ==="
+              shfmt -d lobster.sh providers tests
+              shfmt_status=$?
+              echo "=== shellcheck ==="
+              shellcheck lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh
+              shellcheck_status=$?
+              echo "statuses: shfmt=$shfmt_status shellcheck=$shellcheck_status"
+              test "$shfmt_status" -eq 0 -a "$shellcheck_status" -eq 0
+            ' >ci-diagnostics.log 2>&1
+          lint_status=$?
+
+          echo '=== nix flake check ===' >>ci-diagnostics.log
+          nix flake check --print-build-logs >>ci-diagnostics.log 2>&1
+          nix_status=$?
+
+          status=0
+          if ((lint_status || nix_status)); then
+            status=1
+          fi
+          echo "status=$status" >>"$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: current-lint-diagnostics
+          path: ci-diagnostics.log
+
+      - name: Check result
+        if: always()
+        run: exit "${{ steps.diagnostics.outputs.status }}"
