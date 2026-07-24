@@ -18,54 +18,31 @@ jobs:
         with:
           ref: fix/replace-flixhq-provider
 
-      - name: Apply stored migration
-        id: apply
+      - name: Apply verified migration
         shell: bash
         run: |
-          set +e
-          {
-            set -x
-            wc -c .github/provider-migration.b64
-            base64 -d .github/provider-migration.b64 > /tmp/provider-migration.tar.gz
-            base64_status=$?
-            gzip -t /tmp/provider-migration.tar.gz
-            gzip_status=$?
-            tar -tzf /tmp/provider-migration.tar.gz
-            list_status=$?
-
-            status=0
-            if ((base64_status || gzip_status || list_status)); then
-              status=1
-            else
-              tar -xzf /tmp/provider-migration.tar.gz -C .
-              rm -f \
-                .github/provider-migration.b64 \
-                .github/workflows/apply-provider-migration.yml \
-                .github/workflows/apply-provider-migration-run.yml
-              git config user.name github-actions[bot]
-              git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-              git add -A
-              git commit -m "fix: preserve legacy features with provider fallbacks"
-              commit_status=$?
-              if ((commit_status == 0)); then
-                git push origin HEAD:fix/replace-flixhq-provider
-                status=$?
-              else
-                status=$commit_status
-              fi
-            fi
-            echo "status=$status"
-          } >migration.log 2>&1
-          echo "status=$status" >>"$GITHUB_OUTPUT"
-          exit 0
-
-      - name: Upload migration log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: provider-migration-log
-          path: migration.log
-
-      - name: Check result
-        if: always()
-        run: exit "${{ steps.apply.outputs.status }}"
+          cat .github/provider-migration.part00 \
+              .github/provider-migration.part01 \
+              .github/provider-migration.part02 \
+              .github/provider-migration.part03 \
+              > /tmp/provider-migration.b64
+          test "$(wc -c < /tmp/provider-migration.b64)" -eq 24508
+          echo '31dc98e6330b1ad2d23ac2d624aab170d7d13d1eebbb65175ac8d8acc76d0255  /tmp/provider-migration.b64' \
+            | sha256sum --check
+          base64 -d /tmp/provider-migration.b64 > /tmp/provider-migration.tar.gz
+          echo '606ef3e8f75c86a3c0fc99df6a82cdd77f4b3a1f5130ea2607d4571b87da909f  /tmp/provider-migration.tar.gz' \
+            | sha256sum --check
+          tar -xzf /tmp/provider-migration.tar.gz -C .
+          rm -f \
+            .github/provider-migration.b64 \
+            .github/provider-migration.part00 \
+            .github/provider-migration.part01 \
+            .github/provider-migration.part02 \
+            .github/provider-migration.part03 \
+            .github/workflows/apply-provider-migration.yml \
+            .github/workflows/apply-provider-migration-run.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: preserve legacy features with provider fallbacks"
+          git push origin HEAD:fix/replace-flixhq-provider
