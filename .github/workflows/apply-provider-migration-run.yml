@@ -21,9 +21,9 @@ jobs:
       - name: Apply stored migration
         shell: bash
         run: |
-          sed -n "/^H4sI/,/^          PAYLOAD$/p" .github/workflows/apply-provider-migration.yml \
+          sed -n '/H4sI/,/^[[:space:]]*PAYLOAD$/p' .github/workflows/apply-provider-migration.yml \
             | sed '$d' \
-            | sed 's/^          //' \
+            | sed 's/^[[:space:]]*//' \
             > /tmp/payload.b64
           base64 -d /tmp/payload.b64 | tar -xzf - -C .
           rm -f \
