@@ -1,0 +1,52 @@
+name: Exact provider lint
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/exact-provider-lint.yml
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Run inherited lint options
+        id: lint
+        shell: bash
+        run: |
+          set +e
+          nix shell \
+            github:NixOS/nixpkgs/nixos-unstable#shellcheck \
+            github:NixOS/nixpkgs/nixos-unstable#shfmt \
+            --command sh -c '
+              echo "=== shfmt -i 4 -ci -d ==="
+              shfmt -i 4 -ci -d lobster.sh providers tests
+              shfmt_status=$?
+              echo "=== shellcheck -s sh -o all -e 2250 ==="
+              shellcheck -s sh -o all -e 2250 lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh
+              shellcheck_status=$?
+              echo "statuses: shfmt=$shfmt_status shellcheck=$shellcheck_status"
+              test "$shfmt_status" -eq 0 -a "$shellcheck_status" -eq 0
+            ' >exact-lint.log 2>&1
+          status=$?
+          echo "status=$status" >>"$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload exact lint log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exact-provider-lint
+          path: exact-lint.log
+
+      - name: Check result
+        if: always()
+        run: exit "${{ steps.lint.outputs.status }}"
