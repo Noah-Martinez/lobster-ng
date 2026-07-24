@@ -9,6 +9,5 @@ updates:
       timezone: Europe/Zurich
     labels:
       - dependencies
-      - security
     commit-message:
       prefix: "ci"
