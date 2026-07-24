@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Check flake
+        run: nix flake check --print-build-logs
+
+      - name: Verify hardened script
+        run: |
+          result="$(nix build .#lobster --no-link --print-out-paths)"
+          script="$result/bin/lobster"
+          if grep -Eq '(^|[^[:alnum:]_])eval[[:space:]]' "$script"; then
+            echo "eval remains in packaged lobster" >&2
+            exit 1
+          fi
+          if grep -q 'update_script' "$script"; then
+            echo "self-updater remains in packaged lobster" >&2
+            exit 1
+          fi
