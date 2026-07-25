@@ -20,9 +20,10 @@ jobs:
         uses: cachix/install-nix-action@v31
 
       - name: Test live catalog and playback resolution
+        id: smoke
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
 
           smoke_root="$RUNNER_TEMP/lobster-live-smoke"
           mkdir -p \
@@ -77,6 +78,14 @@ jobs:
           use_external_menu="false"
           EOF_CONFIG
 
+          cat >"$smoke_root/run-smoke.sh" <<'EOF_SMOKE'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          smoke_root=$1
+          workspace=$2
+          cd "$workspace"
+
           run_case() {
             query=$1
             expected_title=$2
@@ -90,7 +99,7 @@ jobs:
             XDG_DATA_HOME="$smoke_root/data" \
             XDG_CACHE_HOME="$smoke_root/cache" \
             PATH="$smoke_root/bin:$PATH" \
-            LOBSTER_PROVIDER_DIR="$GITHUB_WORKSPACE/providers" \
+            LOBSTER_PROVIDER_DIR="$workspace/providers" \
             LOBSTER_SMOKE_TITLE="$expected_title" \
             LOBSTER_SMOKE_TYPE="$expected_type" \
             LOBSTER_SMOKE_SEASON=1 \
@@ -105,11 +114,27 @@ jobs:
             printf 'Resolved playable HLS source for %s.\n' "$query"
           }
 
-          nix shell nixpkgs#jq --command bash -c '
-            set -euo pipefail
-            export smoke_root="$1"
-            export GITHUB_WORKSPACE="$2"
-            export -f run_case
-            run_case "Dr Who" "Doctor Who" tv "$smoke_root/doctor-who.json"
-            run_case "Howls Moving Castle" "Howl'"'"'s Moving Castle" movie "$smoke_root/howls-moving-castle.json"
-          ' bash "$smoke_root" "$GITHUB_WORKSPACE"
+          run_case "Dr Who" "Doctor Who" tv "$smoke_root/doctor-who.json"
+          run_case "Howls Moving Castle" "Howl's Moving Castle" movie "$smoke_root/howls-moving-castle.json"
+          EOF_SMOKE
+          chmod +x "$smoke_root/run-smoke.sh"
+
+          nix shell nixpkgs#jq --command \
+            bash "$smoke_root/run-smoke.sh" "$smoke_root" "$GITHUB_WORKSPACE" \
+            >live-smoke.log 2>&1
+          status=$?
+
+          cat live-smoke.log
+          echo "status=$status" >>"$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload live smoke log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-title-smoke-log
+          path: live-smoke.log
+
+      - name: Check result
+        if: always()
+        run: exit "${{ steps.smoke.outputs.status }}"
