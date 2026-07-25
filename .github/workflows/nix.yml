@@ -1,166 +1,24 @@
-name: Apply browser user agent hardening
+name: Nix
 
 on:
   pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  check:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out branch
+      - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          ref: fix/replace-flixhq-provider
 
-      - name: Apply and commit hardening
-        shell: bash
-        run: |
-          set -euo pipefail
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
 
-          python3 <<'PY'
-          from pathlib import Path
-
-          def replace_once(path: str, old: str, new: str) -> None:
-              file = Path(path)
-              text = file.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"expected one match in {path}, found {count}: {old!r}")
-              file.write_text(text.replace(old, new, 1))
-
-          replace_once(
-              "lobster.sh",
-              "script_dir=$(CDPATH='' cd -- \"$(dirname -- \"$0\")\" 2>/dev/null && pwd)\n",
-              "script_dir=$(CDPATH='' cd -- \"$(dirname -- \"$0\")\" 2>/dev/null && pwd)\n"
-              "user_agent=\"${LOBSTER_USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36}\"\n",
-          )
-
-          replacements = [
-              (
-                  'json_data=$(curl -sS -X POST "$extractor_url" \\\n',
-                  'json_data=$(curl -sS -A "$user_agent" -X POST "$extractor_url" \\\n',
-              ),
-              (
-                  'curl -s -o "$poster_path" "$cover_url" &',
-                  'curl -s -A "$user_agent" -o "$poster_path" "$cover_url" &',
-              ),
-              (
-                  'content=$(curl -s "$link")',
-                  'content=$(curl -s -A "$user_agent" "$link")',
-              ),
-              (
-                  'update=$(curl -s "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh" || exit 1)',
-                  'update=$(curl -s -A "$user_agent" "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh" || exit 1)',
-              ),
-              (
-                  'if ! curl -fsSL "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/providers/$provider_path" \\\n',
-                  'if ! curl -fsSL -A "$user_agent" "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/providers/$provider_path" \\\n',
-              ),
-          ]
-          for old, new in replacements:
-              replace_once("lobster.sh", old, new)
-
-          replace_once(
-              "tests/provider-interface.sh",
-              """    cat <<'EOF_CURL'
-          json='{\"sources\":[{\"file\":\"https://example.test/playlist.m3u8\"}],\"tracks\":[]}'
-          printf '%s' \"$json\"
-          EOF_CURL
-""",
-              """    cat <<'EOF_CURL'
-          seen_user_agent=""
-          while [ "$#" -gt 0 ]; do
-              case "$1" in
-                  -A | --user-agent)
-                      shift
-                      seen_user_agent=${1:-}
-                      ;;
-              esac
-              shift
-          done
-          if [ "$seen_user_agent" != "$LOBSTER_TEST_USER_AGENT" ]; then
-              printf 'expected browser user agent %s, got %s\\n' "$LOBSTER_TEST_USER_AGENT" "$seen_user_agent" >&2
-              exit 97
-          fi
-          json='{\"sources\":[{\"file\":\"https://example.test/playlist.m3u8\"}],\"tracks\":[]}'
-          printf '%s' "$json"
-          EOF_CURL
-""",
-          )
-
-          replace_once(
-              "tests/provider-interface.sh",
-              """main_output=$(HOME="$tmp_dir/home" \\
-              XDG_DATA_HOME="$tmp_dir/data" \\
-""",
-              """test_user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36'
-          main_output=$(HOME="$tmp_dir/home" \\
-              XDG_DATA_HOME="$tmp_dir/data" \\
-""",
-          )
-
-          replace_once(
-              "tests/provider-interface.sh",
-              """    LOBSTER_PROVIDER_DIR="$repo_dir/providers" \\
-              LOBSTER_FIXTURE_FILE="$tmp_dir/tmdb-movie.html" \\
-""",
-              """    LOBSTER_PROVIDER_DIR="$repo_dir/providers" \\
-              LOBSTER_FIXTURE_FILE="$tmp_dir/tmdb-movie.html" \\
-              LOBSTER_USER_AGENT="$test_user_agent" \\
-              LOBSTER_TEST_USER_AGENT="$test_user_agent" \\
-""",
-          )
-          PY
-
-          python3 <<'PY'
-          from pathlib import Path
-          import re
-
-          for path in [Path("lobster.sh"), Path("providers/catalog/tmdb.sh"), Path("providers/catalog/imdb.sh")]:
-              for number, line in enumerate(path.read_text().splitlines(), 1):
-                  if re.search(r"\bcurl\s", line) and '-A "$user_agent"' not in line:
-                      raise SystemExit(f"curl without browser user agent: {path}:{number}: {line}")
-
-          for path in [Path("lobster.sh"), Path("README.md"), *Path("providers").rglob("*.sh")]:
-              if "vidsrc.ru" in path.read_text().lower():
-                  raise SystemExit(f"unexpected vidsrc.ru reference in {path}")
-          PY
-
-          cat >.github/workflows/nix.yml <<'EOF_NIX'
-          name: Nix
-
-          on:
-            pull_request:
-            push:
-              branches:
-                - main
-            workflow_dispatch:
-
-          permissions:
-            contents: read
-
-          jobs:
-            check:
-              runs-on: ubuntu-latest
-              steps:
-                - name: Check out repository
-                  uses: actions/checkout@v4
-
-                - name: Install Nix
-                  uses: cachix/install-nix-action@v31
-
-                - name: Check flake
-                  run: nix flake check --print-build-logs
-          EOF_NIX
-          sed -i 's/^          //' .github/workflows/nix.yml
-          rm -f .github/workflows/apply-browser-user-agent.yml .ua-trigger
-
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
-          git commit -m "fix: send browser user agent for curl requests"
-          git push origin HEAD:fix/replace-flixhq-provider
+      - name: Check flake
+        run: nix flake check --print-build-logs
