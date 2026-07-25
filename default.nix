@@ -110,7 +110,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   postInstall = ''
     wrapProgram $out/bin/lobster \
       --set LOBSTER_PROVIDER_DIR "$out/lib/lobster/providers" \
-      --prefix PATH : $wrapperPaths
+      --prefix PATH : ${wrapperPaths}
   '';
 
   passthru.tests.version = testers.testVersion {
