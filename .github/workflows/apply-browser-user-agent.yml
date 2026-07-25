@@ -1,4 +1,5 @@
 name: Apply browser user agent hardening
+# Trigger after workflow creation.
 
 on:
   pull_request:
