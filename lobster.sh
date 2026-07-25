@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-LOBSTER_VERSION="4.6.8"
+LOBSTER_VERSION="4.7.0"
 
 ### General Variables ###
 config_file="$HOME/.config/lobster/lobster_config.sh"
@@ -20,6 +20,7 @@ BACK_CODE=10
 FORWARD_CODE=11
 API_URL="https://dec.eatmynerds.live"
 API_FALLBACK_URL="https://decrypt.broggl.farm"
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
 
 ### Notifications ###
 command -v notify-send >/dev/null 2>&1 && notify="true" || notify="false" # check if notify-send is installed
@@ -38,7 +39,6 @@ send_notification() {
 }
 
 ### HTML Decoding ###
-command -v "hxunent" >/dev/null 2>&1 && hxunent="hxunent" || hxunent="tee /dev/null" # use hxunent if installed, else do nothing
 
 ### Discord Rich Presence Variables ###
 # Note: experimental feature
@@ -117,8 +117,12 @@ usage() {
       Use rofi instead of fzf
     -n, --no-subs
       Disable subtitles
-    -p, --provider
-      Specify the provider to watch from (if no provider is provided, it defaults to Vidcloud) (currently supported: Vidcloud, UpCloud)
+    --catalog-provider [provider]
+      Force a catalog provider instead of automatic fallback (currently supported: tmdb, imdb)
+    -p, --provider, --stream-provider [provider]
+      Force a stream provider instead of automatic fallback (currently supported: vidapi, vidcore)
+    --list-providers
+      Show installed catalog and stream providers and their fallback order
     -q, --quality
       Specify the video quality (if no quality is provided, it defaults to 1080)
     -r, --recent [movies|tv]
@@ -165,12 +169,20 @@ configuration() {
     [ ! -d "$data_dir" ] && mkdir -p "$data_dir"
     #shellcheck disable=1090
     [ -f "$config_file" ] && . "${config_file}" # source the user's config file
-    [ -z "$base" ] && base="flixhq.to"
     [ -z "$player" ] && player="mpv"
     [ -z "$download_dir" ] && download_dir="$PWD"
-    [ -z "$provider" ] && provider="Vidcloud"
-    [ -z "$subs_language" ] && subs_language="english"
-    subs_language="$(printf "%s" "$subs_language" | cut -c2-)"
+    [ -z "$catalog_provider" ] && catalog_provider="auto"
+    [ -z "$stream_provider" ] && stream_provider="auto"
+    [ -z "$catalog_provider_order" ] && catalog_provider_order="tmdb imdb"
+    [ -z "$stream_provider_order" ] && stream_provider_order="vidapi vidcore"
+    [ -z "$subs_language" ] && subs_language="en"
+    if [ -n "${LOBSTER_PROVIDER_DIR:-}" ]; then
+        provider_dir="$LOBSTER_PROVIDER_DIR"
+    elif [ -d "$script_dir/providers" ]; then
+        provider_dir="$script_dir/providers"
+    else
+        provider_dir="$data_dir/providers"
+    fi
     [ -z "$histfile" ] && histfile="$data_dir/lobster_history.txt" && mkdir -p "$(dirname "$histfile")"
     [ -z "$history" ] && history=false
     [ -z "$use_external_menu" ] && use_external_menu="false"
@@ -209,7 +221,7 @@ configuration() {
 exec 3>&1 4>&2 1>"$lobster_logfile" 2>&1
 {
     # check that the necessary programs are installed
-    dep_ch "grep" "$sed" "curl" "fzf" || true
+    dep_ch "grep" "$sed" "curl" "fzf" "jq" || true
     if [ "$use_external_menu" = "true" ]; then
         dep_ch "rofi" || true
     fi
@@ -266,6 +278,135 @@ EOF
         [ -n "$line" ] && printf "%s" "$stdin" | $sed -nE "s@^$line\t(.*)@\1@p" || exit 1
     }
 
+    ### Provider orchestration ###
+    provider_script() {
+        printf "%s/%s/%s.sh\n" "$provider_dir" "$1" "$2"
+    }
+    provider_names() {
+        if [ "$1" = "auto" ]; then
+            printf "%s\n" "$2"
+        else
+            printf "%s\n" "$1"
+        fi
+    }
+    validate_provider() {
+        kind=$1
+        name=$2
+        [ "$name" = "auto" ] && return 0
+        script=$(provider_script "$kind" "$name")
+        if [ ! -x "$script" ]; then
+            send_notification "Error" "5000" "" "Unknown $kind provider '$name'"
+            printf "Available %s providers:\n" "$kind" >&2
+            list_provider_files "$kind" | sed 's/^/  - /' >&2
+            exit 1
+        fi
+    }
+    list_provider_files() {
+        kind=$1
+        [ -d "$provider_dir/$kind" ] || return 0
+        for script in "$provider_dir/$kind"/*.sh; do
+            [ -f "$script" ] || continue
+            basename "$script" .sh
+        done
+    }
+    list_providers() {
+        printf "Catalog fallback order: %s\n" "$catalog_provider_order"
+        list_provider_files catalog | sed 's/^/  - /'
+        printf "Stream fallback order: %s\n" "$stream_provider_order"
+        list_provider_files stream | sed 's/^/  - /'
+    }
+    run_provider() {
+        provider_kind=$1
+        provider_name=$2
+        shift 2
+        provider_path=$(provider_script "$provider_kind" "$provider_name")
+        provider_stdout="$tmp_dir/provider.out"
+        provider_stderr="$tmp_dir/provider.err"
+        : >"$provider_stdout"
+        : >"$provider_stderr"
+
+        if [ ! -x "$provider_path" ]; then
+            printf "%s provider is not installed at %s\n" "$provider_name" "$provider_path" >"$provider_stderr"
+            provider_status=127
+        else
+            "$provider_path" "$@" >"$provider_stdout" 2>"$provider_stderr"
+            provider_status=$?
+        fi
+        provider_message=$(cat "$provider_stderr")
+        if [ "$debug" = "true" ] && [ -n "$provider_message" ]; then
+            printf "[%s/%s] %s\n" "$provider_kind" "$provider_name" "$provider_message" >&2
+        fi
+        return "$provider_status"
+    }
+    append_provider_error() {
+        provider_errors="${provider_errors}${1}: ${2}\n"
+    }
+    print_provider_errors() {
+        printf '%b' "$provider_errors" | sed 's/^/  - /' >&2
+    }
+    catalog_request() {
+        action=$1
+        shift
+        provider_errors=""
+        all_no_results="true"
+        names=$(provider_names "$catalog_provider" "$catalog_provider_order")
+
+        for name in $names; do
+            if run_provider catalog "$name" "$action" "$@"; then
+                response=$(cat "$provider_stdout")
+                if [ -n "$response" ]; then
+                    active_catalog_provider=$name
+                    return 0
+                fi
+                provider_status=4
+                provider_message="$name returned an empty response"
+            fi
+            [ "$provider_status" -eq 2 ] || all_no_results="false"
+            [ -n "$provider_message" ] || provider_message="failed with exit code $provider_status"
+            append_provider_error "$name" "$provider_message"
+        done
+
+        if [ "$all_no_results" = "true" ]; then
+            send_notification "Error" "5000" "" "No matching movies or TV shows were found"
+        else
+            send_notification "Error" "5000" "" "Catalog lookup failed"
+        fi
+        print_provider_errors
+        printf "Try --catalog-provider NAME to test one provider or --debug for diagnostics.\n" >&2
+        return 1
+    }
+    catalog_detail() {
+        action=$1
+        shift
+        detail_response=""
+        detail_error=""
+        if run_provider catalog "$active_catalog_provider" "$action" "$@"; then
+            detail_response=$(cat "$provider_stdout")
+            [ -n "$detail_response" ] && return 0
+            provider_message="$active_catalog_provider returned an empty response"
+        fi
+        [ -n "$provider_message" ] || provider_message="failed with exit code $provider_status"
+        detail_error=$provider_message
+        return 1
+    }
+    report_detail_error() {
+        send_notification "Error" "5000" "" "Could not load $1 for '$title'"
+        printf "  - %s: %s\n" "$active_catalog_provider" "$detail_error" >&2
+    }
+    prompt_number() {
+        prompt=$1
+        if [ "$use_external_menu" = "true" ]; then
+            number=$(printf '' | rofi -dmenu -p "$prompt")
+        else
+            printf "%s: " "$prompt" >&3
+            read -r number
+        fi
+        case "$number" in
+            '' | *[!0-9]*) return 1 ;;
+            *) printf "%s\n" "$number" ;;
+        esac
+    }
+
     ### User Prompts ###
     prompt_to_continue() {
         if [ "$media_type" = "tv" ]; then
@@ -291,16 +432,13 @@ EOF
         rc=$?
         # rofi return exit code 1 when user submits custom text, so check >1 for exit
         [ "$rc" -gt 1 ] && exit 0
-        [ -n "$query" ] && query=$(echo "$query" | tr ' ' '-')
         if [ -z "$query" ]; then
             send_notification "Error" "1000" "" "No query provided"
             exit 1
         fi
     }
     search() {
-        response=$(curl -s "https://${base}/search/$1" | $sed ':a;N;$!ba;s/\n//g;s/class="flw-item"/\n/g' |
-            $sed -nE "s@.*img data-src=\"([^\"]*)\".*<a href=\"/((tv|movie)/watch-[^\"]*-([0-9]*))\".*title=\"([^\"]*)\".*class=\"fdi-item\">([^<]*)</span>.*@\1\t\4\t\3\t\5 [\6]\t\2@p")
-        [ -z "$response" ] && send_notification "Error" "1000" "" "No results found" && exit 1
+        catalog_request search "$1" || exit 1
     }
     choose_search() {
         if [ -z "$response" ]; then
@@ -321,11 +459,6 @@ EOF
             rc=$?
 
             choice=$(printf "%s\n" "$response" | awk -F '\t' -v id="$media_id" '$2 == id { print; exit }')
-            image_link=$(printf "%s" "$choice" | cut -f1)
-            media_id=$(printf "%s" "$choice" | cut -f2)
-            media_type=$(printf "%s" "$choice" | cut -f3)
-            title=$(printf "%s" "$choice" | cut -f4 | $sed -nE "s@(.*) \[.*\]@\1@p")
-            api_media_id=$(printf "%s" "$choice" | cut -f5)
         else
             if [ "$use_external_menu" = "true" ]; then
                 choice=$(printf "%s" "$response" | rofi -kb-mode-next "" -kb-mode-previous "" -kb-custom-1 Shift+Left -kb-custom-2 Shift+Right -dmenu -i -p "" -mesg "Choose a Movie or TV Show" -display-columns 4)
@@ -333,31 +466,31 @@ EOF
             else
                 choice=$(printf "%s" "$response" | fzf --bind "shift-right:accept" --expect=shift-left --cycle --reverse --with-nth 4 -d "\t" --header "Choose a Movie or TV Show")
                 rc=$?
-                # Check for back-button
                 case $choice in
                     shift-left"$nl"*)
                         rc="$BACK_CODE"
                         choice=${choice#*"$nl"}
                         ;;
-                    "$nl"*) choice=${choice#*"$nl"} ;;
+                    "$nl"*) choice=${choice#"$nl"} ;;
                     *) exit 1 ;;
                 esac
             fi
-            image_link=$(printf "%s" "$choice" | cut -f1)
-            media_id=$(printf "%s" "$choice" | cut -f2)
-            media_type=$(printf "%s" "$choice" | cut -f3)
-            title=$(printf "%s" "$choice" | cut -f4 | $sed -nE "s@(.*) \[.*\]@\1@p")
-            api_media_id=$(printf "%s" "$choice" | cut -f5)
         fi
 
-        # Check if back button pressed
+        image_link=$(printf "%s" "$choice" | cut -f1)
+        media_id=$(printf "%s" "$choice" | cut -f2)
+        media_type=$(printf "%s" "$choice" | cut -f3)
+        title=$(printf "%s" "$choice" | cut -f4 | $sed -E 's/ \[[^]]*\]$//')
+        api_media_id=$(printf "%s" "$choice" | cut -f5)
+        result_catalog_provider=$(printf "%s" "$choice" | cut -f6)
+        [ -n "$result_catalog_provider" ] && active_catalog_provider=$result_catalog_provider
+
         if [ "$rc" -eq "$BACK_CODE" ]; then
             STATE="SEARCH"
             response=""
             query=""
             choice=""
             return 0
-        # Don't exit on rc="$FORWARD_CODE", it means rofi kb-custom-2 was pressed
         elif [ "$rc" -ne 0 ] && [ "$rc" -ne "$FORWARD_CODE" ]; then
             exit 0
         fi
@@ -370,67 +503,65 @@ EOF
         fi
     }
     choose_season() {
-        season_line=$(
-            curl -s "https://${base}/ajax/v2/tv/seasons/${media_id}" |
-                $sed -nE 's@.*href=".*-([0-9]*)">(.*)</a>@\2\t\1@p' |
-                launcher "Select a season: " "1"
-        )
-        rc=$?
-        if [ "$rc" -eq "$BACK_CODE" ]; then
-            STATE="MEDIA"
-            return 0
-        elif [ "$rc" -ne 0 ] && [ "$rc" -ne "$FORWARD_CODE" ]; then
-            exit 0
+        if catalog_detail seasons "$api_media_id"; then
+            season_line=$(printf "%s\n" "$detail_response" | launcher "Select a season: " "1")
+            rc=$?
+            if [ "$rc" -eq "$BACK_CODE" ]; then
+                STATE="MEDIA"
+                return 0
+            elif [ "$rc" -ne 0 ] && [ "$rc" -ne "$FORWARD_CODE" ]; then
+                exit 0
+            fi
+            [ -z "$season_line" ] && exit 1
+            season_title=$(printf '%s' "$season_line" | cut -f1)
+            season_id=$(printf '%s' "$season_line" | cut -f2)
+        else
+            report_detail_error "seasons"
+            season_id=$(prompt_number "Enter season number manually") || exit 1
+            season_title="Season $season_id"
         fi
-
-        [ -z "$season_line" ] && exit 1
-
-        season_title=$(printf '%s' "$season_line" | cut -f1)
-        season_id=$(printf '%s' "$season_line" | cut -f2)
         STATE="EPISODE"
     }
     choose_episode() {
-        ep_line=$(
-            curl -s "https://${base}/ajax/v2/season/episodes/${season_id}" |
-                $sed ':a;N;$!ba;s/\n//g;s/class="nav-item"/\n/g' |
-                $sed -nE 's@.*data-id="([0-9]*)".*title="([^"]*)">.*@\2\t\1@p' |
-                $hxunent |
-                launcher "Select an episode: " "1"
-        )
-        rc=$?
-
-        if [ "$rc" -eq "$BACK_CODE" ]; then
-            STATE="SEASON"
-            return 0
-        elif [ "$rc" -ne 0 ] && [ "$rc" -ne "$FORWARD_CODE" ]; then
-            exit 0
+        if catalog_detail episodes "$api_media_id" "$season_id"; then
+            ep_line=$(printf "%s\n" "$detail_response" | launcher "Select an episode: " "1")
+            rc=$?
+            if [ "$rc" -eq "$BACK_CODE" ]; then
+                STATE="SEASON"
+                return 0
+            elif [ "$rc" -ne 0 ] && [ "$rc" -ne "$FORWARD_CODE" ]; then
+                exit 0
+            fi
+            [ -z "$ep_line" ] && exit 1
+            episode_title=$(printf '%s' "$ep_line" | cut -f1)
+            episode_id=$(printf '%s' "$ep_line" | cut -f2)
+        else
+            report_detail_error "episodes"
+            episode_id=$(prompt_number "Enter episode number manually") || exit 1
+            episode_title="Episode $episode_id"
         fi
-
-        episode_title=$(printf '%s' "$ep_line" | cut -f1)
-        data_id=$(printf '%s' "$ep_line" | cut -f2)
-
-        episode_id=$(
-            curl -s "https://${base}/ajax/v2/episode/servers/${data_id}" |
-                $sed ':a;N;$!ba;s/\n//g;s/class="nav-item"/\n/g' |
-                $sed -nE 's@.*data-id="([0-9]*)".*title="([^"]*)".*@\1\t\2@p' |
-                grep "$provider" | cut -f1 | head -n1
-        )
-
+        data_id=$episode_id
         keep_running="true"
         STATE="PLAY"
     }
     next_episode_exists() {
-        episodes_list=$(curl -s "https://${base}/ajax/v2/season/episodes/${season_id}" | $sed ':a;N;$!ba;s/\n//g;s/class="nav-item"/\n/g' |
-            $sed -nE "s@.*data-id=\"([0-9]*)\".*title=\"([^\"]*)\">.*@\2\t\1@p" | $hxunent)
-        next_episode=$(printf "%s" "$episodes_list" | $sed -n "/$data_id/{n;p;}")
-        [ -n "$next_episode" ] && return
-        tmp_season_id=$(curl -s "https://${base}/ajax/v2/tv/seasons/${media_id}" | $sed -n "/href=\".*-$season_id/{n;n;n;n;p;}" | $sed -nE "s@.*href=\".*-([0-9]*)\">(.*)</a>@\2\t\1@p")
-        [ -z "$tmp_season_id" ] && return
-        season_title=$(printf "%s" "$tmp_season_id" | cut -f1)
-        season_id=$(printf "%s" "$tmp_season_id" | cut -f2)
-        next_episode=$(curl -s "https://${base}/ajax/v2/season/episodes/${season_id}" | $sed ':a;N;$!ba;s/\n//g;s/class="nav-item"/\n/g' |
-            $sed -nE "s@.*data-id=\"([0-9]*)\".*title=\"([^\"]*)\">.*@\2\t\1@p" | $hxunent | head -1)
-        [ -n "$next_episode" ] && return
+        next_episode=""
+        if catalog_detail episodes "$api_media_id" "$season_id"; then
+            next_episode=$(printf "%s\n" "$detail_response" | awk -F '\t' -v current="$episode_id" '$2 == current { getline; print; exit }')
+            [ -n "$next_episode" ] && return
+        else
+            return
+        fi
+
+        if catalog_detail seasons "$api_media_id"; then
+            next_season=$(printf "%s\n" "$detail_response" | awk -F '\t' -v current="$season_id" '$2 == current { getline; print; exit }')
+            [ -n "$next_season" ] || return
+            season_title=$(printf "%s" "$next_season" | cut -f1)
+            season_id=$(printf "%s" "$next_season" | cut -f2)
+            if catalog_detail episodes "$api_media_id" "$season_id"; then
+                next_episode=$(printf "%s\n" "$detail_response" | head -n 1)
+            fi
+        fi
     }
 
     ### Image Preview ###
@@ -558,13 +689,13 @@ EOF
                 rofi_out=$(rofi -show drun -drun-categories lobster -filter "$1" -show-icons)
             fi
             rc=$?
-            choice=$(echo "$rofi_out" | $sed -nE "s@.*/([0-9]*)\.desktop@\1@p") 2>/dev/null
+            choice=$(echo "$rofi_out" | $sed -nE "s@.*/([^/]*)\.desktop@\1@p") 2>/dev/null
 
             [ -z "$choice" ] && exit 0
 
             media_id=$(printf "%s" "$choice" | cut -d\  -f1)
-            title=$(printf "%s" "$choice" | $sed -nE "s@[0-9]* (.*) \((tv|movie)\)@\1@p")
-            media_type=$(printf "%s" "$choice" | $sed -nE "s@[0-9]* (.*) \((tv|movie)\)@\2@p")
+            title=$(printf "%s" "$choice" | $sed -nE "s@[^ ]* (.*) \((tv|movie)\)@\1@p")
+            media_type=$(printf "%s" "$choice" | $sed -nE "s@[^ ]* (.*) \((tv|movie)\)@\2@p")
         else
             image_preview_fzf "$1"
             rc=$?
@@ -576,57 +707,70 @@ EOF
         return "$rc"
     }
 
-    ### Scraping/Decryption ###
-    get_embed() {
-        if [ "$media_type" = "movie" ]; then
-            movie_page="https://${base}"$(curl -s "https://${base}/ajax/movie/episodes/${media_id}" |
-                $sed ':a;N;$!ba;s/\n//g;s/class="nav-item"/\n/g' | $sed -nE "s@.*href=\"([^\"]*)\"[[:space:]]*title=\"${provider}\".*@\1@p")
-            episode_id=$(printf "%s" "$movie_page" | $sed -nE "s_.*-([0-9]*)\.([0-9]*)\$_\2_p")
-        fi
-
-        embed_link=$(curl -s "https://${base}/ajax/episode/sources/${episode_id}" | $sed -nE "s_.*\"link\":\"([^\"]*)\".*_\1_p")
-        if [ -z "$embed_link" ]; then
-            send_notification "Error" "Could not get embed link"
-            exit 1
-        fi
+    ### Stream provider resolution ###
+    extract_embed_url() {
+        embed_to_extract=$1
+        extractor_errors=""
+        for extractor_url in "$API_URL" "$API_FALLBACK_URL"; do
+            extractor_error_file="$tmp_dir/extractor.err"
+            json_data=$(curl -sS -X POST "$extractor_url" \
+                -H "Content-Type: application/json" \
+                -d "{\"url\": \"$embed_to_extract\", \"mediaId\": \"${api_media_id#*:}\"}" \
+                2>"$extractor_error_file")
+            curl_status=$?
+            if [ "$curl_status" -eq 0 ]; then
+                video_link=$(printf "%s" "$json_data" | jq -r '.. | objects | .file? // empty' 2>/dev/null | grep -E '\.m3u8($|\?)' | head -n 1)
+                [ -n "$video_link" ] && return 0
+                extractor_message=$(printf "%s" "$json_data" | jq -r '.message // .error // empty' 2>/dev/null | head -n 1)
+                [ -n "$extractor_message" ] || extractor_message="returned no playable HLS source"
+            else
+                extractor_message=$(cat "$extractor_error_file")
+                [ -n "$extractor_message" ] || extractor_message="request failed"
+            fi
+            extractor_errors="${extractor_errors}${extractor_url}: ${extractor_message}; "
+        done
+        return 1
     }
-
-    extract_from_embed() {
-        json_data=$(curl -s -X POST "${API_URL}" \
-            -H "Content-Type: application/json" \
-            -d "{\"url\": \"${embed_link}\", \"mediaId\": \"${api_media_id}\"}")
-        video_link=$(printf "%s" "$json_data" | $sed -nE "s_.*\"file\":\"([^\"]*\.m3u8)\".*_\1_p" | head -n 1)
+    resolve_stream() {
+        provider_errors=""
+        names=$(provider_names "$stream_provider" "$stream_provider_order")
+        for name in $names; do
+            if run_provider stream "$name" "$media_type" "$api_media_id" "$season_id" "$episode_id" "$subs_language"; then
+                embed_link=$(head -n 1 "$provider_stdout")
+                if [ -z "$embed_link" ]; then
+                    provider_message="$name returned an empty embed URL"
+                elif extract_embed_url "$embed_link"; then
+                    break
+                else
+                    provider_message="embed URL was created, but extraction failed: $extractor_errors"
+                fi
+            fi
+            [ -n "$provider_message" ] || provider_message="failed with exit code $provider_status"
+            append_provider_error "$name" "$provider_message"
+            video_link=""
+        done
 
         if [ -z "$video_link" ]; then
-            send_notification "Using ${API_URL} failed, using ${API_FALLBACK_URL} instead"
-
-            json_data=$(curl -s -X POST "${API_FALLBACK_URL}" \
-                -H "Content-Type: application/json" \
-                -d "{\"url\": \"${embed_link}\", \"mediaId\": \"${api_media_id}\"}")
-            video_link=$(printf "%s" "$json_data" | $sed -nE "s_.*\"file\":\"([^\"]*\.m3u8)\".*_\1_p" | head -n 1)
-        fi
-
-        if [ -z "$video_link" ] && [ "$json_output" != "true" ]; then
-            send_notification "Error" "3000" "" "No sources returned, please try again later"
-            exit 1
+            send_notification "Error" "5000" "" "No stream provider returned a playable source for '$title'"
+            print_provider_errors
+            printf "The catalog lookup succeeded; playback providers or extractors failed.\n" >&2
+            printf "Try --stream-provider NAME to test one provider or --debug for diagnostics.\n" >&2
+            return 1
         fi
 
         [ -n "$quality" ] && video_link=$(printf "%s" "$video_link" | sed -e "s|/playlist.m3u8|/$quality/index.m3u8|")
-
         [ "$json_output" = "true" ] && printf "%s\n" "$json_data" && exit 0
 
         if [ "$no_subs" = "true" ]; then
             send_notification "Continuing without subtitles"
         else
             subs_links=$(printf "%s" "$json_data" | tr '{' '\n' | $sed -n "s/.*\"file\":\"\([^\"]*\)\".*\"label\":\"[^\"]*${subs_language}[^\"]*\".*/\1/Ip")
-
             if [ -z "$subs_links" ]; then
                 send_notification "No subtitles found for language '$subs_language'"
                 subs_arg=""
             else
                 subs_arg="--sub-file"
                 num_subs=$(printf "%s" "$subs_links" | wc -l | tr -d ' ')
-
                 if [ "$num_subs" -gt 0 ]; then
                     subs_links=$(printf "%s" "$subs_links" | sed -e "s/:/\\$path_thing:/g" -e "H;1h;\$!d;x;y/\n/$separator/" -e "s/$separator\$//")
                     subs_arg="--sub-files"
@@ -692,8 +836,7 @@ EOF
                         position="00:00:00"
                         episode_title=$(printf "%s" "$next_episode" | cut -f1)
                         data_id=$(printf "%s" "$next_episode" | cut -f2)
-                        episode_id=$(curl -s "https://${base}/ajax/v2/episode/servers/${data_id}" | $sed ':a;N;$!ba;s/\n//g;s/class="nav-item"/\n/g' |
-                            $sed -nE "s@.*data-id=\"([0-9]*)\".*title=\"([^\"]*)\".*@\1\t\2@p" | grep "$provider" | cut -f1)
+                        episode_id=$data_id
                         send_notification "Updated to next episode" "5000" "" "$episode_title"
                     else
                         $sed -i "/$media_id/d" "$histfile"
@@ -771,6 +914,16 @@ EOF
                 api_media_id=$(printf "%s" "$choice" | cut -f6)
             fi
         fi
+
+        case "$api_media_id" in
+            tmdb:*) active_catalog_provider="tmdb" ;;
+            imdb:*) active_catalog_provider="imdb" ;;
+            *)
+                send_notification "Error" "5000" "" "This history entry predates catalog provider IDs"
+                printf "Search for '%s' again to migrate the history entry.\n" "$title" >&2
+                exit 1
+                ;;
+        esac
 
         STATE="PLAY" && keep_running="true" && loop
     }
@@ -898,19 +1051,36 @@ EOF
     ### Misc ###
     update_script() {
         which_lobster="$(command -v lobster)"
-        [ -z "$which_lobster" ] && send_notification "Can't find lobster in PATH"
-        [ -z "$which_lobster" ] && exit 1
+        [ -z "$which_lobster" ] && send_notification "Can't find lobster in PATH" && exit 1
+        case "$which_lobster" in
+            /nix/store/*)
+                send_notification "Installed through Nix" "5000" "" "Update the lobster-ng flake input and rebuild instead"
+                exit 1
+                ;;
+            *) ;;
+        esac
+
         update=$(curl -s "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/lobster.sh" || exit 1)
         update="$(printf '%s\n' "$update" | diff -u "$which_lobster" -)"
-        if [ -z "$update" ]; then
-            send_notification "Script is up to date :)"
-        else
-            if printf '%s\n' "$update" | patch "$which_lobster" -; then
-                send_notification "Script has been updated!"
-            else
-                send_notification "Can't update for some reason!"
+        if [ -n "$update" ]; then
+            if ! printf '%s\n' "$update" | patch "$which_lobster" -; then
+                send_notification "Error" "5000" "" "Could not update the main script"
+                exit 1
             fi
         fi
+
+        mkdir -p "$provider_dir/catalog" "$provider_dir/stream"
+        for provider_path in \
+            catalog/tmdb.sh catalog/imdb.sh \
+            stream/vidapi.sh stream/vidcore.sh; do
+            if ! curl -fsSL "https://raw.githubusercontent.com/Noah-Martinez/lobster-ng/main/providers/$provider_path" \
+                -o "$provider_dir/$provider_path"; then
+                send_notification "Error" "5000" "" "Could not update provider $provider_path"
+                exit 1
+            fi
+            chmod +x "$provider_dir/$provider_path"
+        done
+        send_notification "Lobster and its providers have been updated!"
         exit 0
     }
     # download_video [url] [title] [download_dir] [json_data] [thumbnail_file (only when image_preview is enabled)]
@@ -951,24 +1121,19 @@ EOF
 
     choose_from_trending_or_recent() {
         path=$1
-        section=$2
-        if [ "$path" = "home" ]; then
-            response=$(curl -s "https://${base}/${path}" | $sed -n "/id=\"${section}\"/,/class=\"block_area block_area_home section-id-02\"/p" | $sed ':a;N;$!ba;s/\n//g;s/class="flw-item"/\n/g' |
-                $sed -nE "s@.*img data-src=\"([^\"]*)\".*<a href=\".*/((tv|movie)/watch-[^\"]*-([0-9]*))\".*title=\"([^\"]*)\".*class=\"fdi-item\">([^<]*)</span>.*@\1\t\4\t\3\t\5 [\6]\t\2@p" | $hxunent)
-        else
-            response=$(curl -s "https://${base}/${path}" | $sed ':a;N;$!ba;s/\n//g;s/class="flw-item"/\n/g' |
-                $sed -nE "s@.*img data-src=\"([^\"]*)\".*<a href=\".*/((tv|movie)/watch-[^\"]*-([0-9]*))\".*title=\"([^\"]*)\".*class=\"fdi-item\">([^<]*)</span>.*@\1\t\4\t\3\t\5 [\6]\t\2@p" | $hxunent)
-        fi
+        case "$path" in
+            home) catalog_request trending || exit 1 ;;
+            movie) catalog_request recent movie || exit 1 ;;
+            tv-show) catalog_request recent tv || exit 1 ;;
+            *) send_notification "Error" "5000" "" "Unknown discovery category '$path'" && exit 1 ;;
+        esac
         main
     }
 
     ### Main ###
     loop() {
         while [ "$keep_running" = "true" ]; do
-            get_embed
-            [ -z "$embed_link" ] && exit 1
-            extract_from_embed
-            [ -z "$video_link" ] && exit 1
+            resolve_stream || exit 1
             if [ "$download" = "true" ]; then
                 if [ "$media_type" = "movie" ]; then
                     if [ "$image_preview" = "true" ]; then
@@ -1010,7 +1175,7 @@ EOF
                     if [ -n "$next_episode" ]; then
                         episode_title=$(printf "%s" "$next_episode" | cut -f1)
                         data_id=$(printf "%s" "$next_episode" | cut -f2)
-                        episode_id=$(curl -s "https://${base}/ajax/v2/episode/servers/${data_id}" | $sed ':a;N;$!ba;s/\n//g;s/class="nav-item"/\n/g' | $sed -nE "s@.*data-id=\"([0-9]*)\".*title=\"([^\"]*)\".*@\1\t\2@p" | grep "$provider" | cut -f1)
+                        episode_id=$data_id
                         send_notification "Watching the next episode" "5000" "" "$episode_title"
                     else
                         send_notification "No more episodes" "5000" "" "$title"
@@ -1054,6 +1219,7 @@ EOF
     }
 
     configuration
+    active_catalog_provider="${active_catalog_provider:-tmdb}"
 
     # Edge case for Windows and Android, just exits with dep_ch's error message if it can't find mpv.exe or not on Android either
     if [ "$player" = "mpv" ] && ! command -v mpv >/dev/null; then
@@ -1105,33 +1271,23 @@ EOF
             -j | --json) json_output="true" && shift ;;
             -l | --language)
                 subs_language="$2"
-                if [ -z "$subs_language" ]; then
-                    subs_language="english"
-                    shift
-                else
-                    if [ "${subs_language#-}" != "$subs_language" ]; then
-                        subs_language="english"
-                        shift
-                    else
-                        subs_language="$(echo "$subs_language" | cut -c2-)"
-                        shift 2
-                    fi
-                fi
+                [ -z "$subs_language" ] && send_notification "Error" "5000" "" "--language requires a value" && exit 1
+                shift 2
                 ;;
             --rofi | --external-menu) use_external_menu="true" && shift ;;
-            -p | --provider)
-                provider="$2"
-                if [ -z "$provider" ]; then
-                    provider="Vidcloud"
-                    shift
-                else
-                    if [ "${provider#-}" != "$provider" ]; then
-                        provider="Vidcloud"
-                        shift
-                    else
-                        shift 2
-                    fi
-                fi
+            --catalog-provider)
+                catalog_provider="$2"
+                [ -z "$catalog_provider" ] && send_notification "Error" "5000" "" "--catalog-provider requires a value" && exit 1
+                shift 2
+                ;;
+            -p | --provider | --stream-provider)
+                stream_provider="$2"
+                [ -z "$stream_provider" ] && send_notification "Error" "5000" "" "--stream-provider requires a value" && exit 1
+                shift 2
+                ;;
+            --list-providers)
+                list_providers
+                exit 0
                 ;;
             -q | --quality)
                 quality="$2"
@@ -1183,7 +1339,7 @@ EOF
                 ;;
         esac
     done
-    query="$(printf "%s" "$query" | tr ' ' '-' | $sed "s/^-//g")"
+    query="$(printf "%s" "$query" | $sed "s/^ //g")"
     if [ "$image_preview" = "true" ]; then
         test -d "$images_cache_dir" || mkdir -p "$images_cache_dir"
         if [ "$use_external_menu" = "true" ]; then
@@ -1191,7 +1347,8 @@ EOF
             [ ! -L "$applications" ] && ln -sf "$tmp_dir/applications/" "$applications"
         fi
     fi
-    [ -z "$provider" ] && provider="Vidcloud"
+    validate_provider catalog "$catalog_provider"
+    validate_provider stream "$stream_provider"
     [ "$trending" = "1" ] && choose_from_trending_or_recent "home" "trending-movies"
     [ "$recent" = "movie" ] && choose_from_trending_or_recent "movie" ""
     [ "$recent" = "tv" ] && choose_from_trending_or_recent "tv-show" ""
