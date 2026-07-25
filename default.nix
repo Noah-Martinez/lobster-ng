@@ -110,6 +110,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   postInstall = ''
     wrapProgram $out/bin/lobster \
       --set LOBSTER_PROVIDER_DIR "$out/lib/lobster/providers" \
+      --set-default stream_provider_order "vidsrc vidlink vidapi vidcore" \
       --prefix PATH : ${wrapperPaths}
   '';
 

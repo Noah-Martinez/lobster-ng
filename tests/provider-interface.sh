@@ -27,6 +27,14 @@ imdb_output=$(LOBSTER_FIXTURE_FILE="$tmp_dir/imdb-search.json" "$repo_dir/provid
 printf '%s\n' "$imdb_output" | grep -F 'imdb-tt0805669' >/dev/null
 printf '%s\n' "$imdb_output" | grep -F 'imdb:tt0805669' >/dev/null
 
+vidsrc_movie_url=$("$repo_dir/providers/stream/vidsrc.sh" movie imdb:tt0137523 '' '' en)
+[ "$vidsrc_movie_url" = 'https://vidsrc.to/embed/movie/tt0137523' ]
+vidsrc_tv_url=$("$repo_dir/providers/stream/vidsrc.sh" tv tmdb:1396 1 1 en)
+[ "$vidsrc_tv_url" = 'https://vidsrc.to/embed/tv/1396/1/1' ]
+vidlink_movie_url=$("$repo_dir/providers/stream/vidlink.sh" movie tmdb:550 '' '' en)
+[ "$vidlink_movie_url" = 'https://vidlink.pro/movie/550' ]
+vidlink_tv_url=$("$repo_dir/providers/stream/vidlink.sh" tv tmdb:1396 1 1 en)
+[ "$vidlink_tv_url" = 'https://vidlink.pro/tv/1396/1/1' ]
 vidapi_url=$("$repo_dir/providers/stream/vidapi.sh" movie tmdb:550 '' '' en)
 [ "$vidapi_url" = 'https://vaplayer.ru/embed/movie/550?lang=en' ]
 vidcore_url=$("$repo_dir/providers/stream/vidcore.sh" tv tmdb:1396 1 1 en)
@@ -63,6 +71,7 @@ main_output=$(HOME="$tmp_dir/home" \
     PATH="$tmp_dir/bin:$PATH" \
     LOBSTER_PROVIDER_DIR="$repo_dir/providers" \
     LOBSTER_FIXTURE_FILE="$tmp_dir/tmdb-movie.html" \
+    stream_provider_order="vidsrc vidlink vidapi vidcore" \
     "$repo_dir/lobster.sh" --json 'Fight Club')
 printf '%s\n' "$main_output" | grep -F 'https://example.test/playlist.m3u8' >/dev/null
 
