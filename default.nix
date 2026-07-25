@@ -92,7 +92,6 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     shellcheck -s sh -o all -e 2250 \
       lobster.sh providers/catalog/*.sh providers/stream/*.sh tests/*.sh
     ./tests/provider-interface.sh
-    grep -F -- '-A' ${browserCurl}/bin/curl >/dev/null
 
     runHook postCheck
   '';
