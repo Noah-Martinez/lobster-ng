@@ -2,8 +2,6 @@ name: Apply browser user agent hardening
 
 on:
   pull_request:
-    paths:
-      - .github/workflows/nix.yml
 
 permissions:
   contents: write
@@ -159,7 +157,7 @@ jobs:
                   run: nix flake check --print-build-logs
           EOF_NIX
           sed -i 's/^          //' .github/workflows/nix.yml
-          rm -f .github/workflows/apply-browser-user-agent.yml
+          rm -f .github/workflows/apply-browser-user-agent.yml .ua-trigger
 
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
